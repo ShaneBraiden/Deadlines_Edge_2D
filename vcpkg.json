@@ -1,0 +1,15 @@
+{
+  "name": "deadlines-edge",
+  "version-string": "0.1.0",
+  "description": "2D horror platformer — Some deadlines you can't outrun.",
+  "builtin-baseline": "4b77da7fed37817f124936239197833469f1b9a8",
+  "dependencies": [
+    "sfml",
+    "box2d",
+    "sdl2"
+  ],
+  "overrides": [
+    { "name": "sfml",  "version": "2.6.1" },
+    { "name": "box2d", "version": "2.4.1" }
+  ]
+}
