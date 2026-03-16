@@ -7,6 +7,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # --- Dependencies (installed via vcpkg) ---
 find_package(SFML COMPONENTS system window graphics REQUIRED)
 find_package(box2d CONFIG REQUIRED)
+find_package(pugixml CONFIG REQUIRED)
 
 # --- Gather all source files ---
 file(GLOB_RECURSE SOURCES "src/*.cpp")
@@ -21,4 +22,5 @@ target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(${PROJECT_NAME} PRIVATE
     sfml-system sfml-window sfml-graphics
     box2d::box2d
+    pugixml::pugixml
 )

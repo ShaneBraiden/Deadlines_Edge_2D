@@ -11,6 +11,8 @@
 #include "ResourceManager.h"
 #include "TileMap.h"
 #include "ParticleSystem.h"
+#include "ParallaxBackground.h"
+#include "LightingSystem.h"
 
 // Core game class — owns the window, physics world, player, and all entities.
 // Runs the main loop with a fixed-timestep accumulator pattern.
@@ -68,6 +70,8 @@ private:
     ResourceManager<sf::Font> fonts;
     TileMap* tileMap;                    // Lab: single-level pointer
     ParticleSystem* particleSystem;     // Lab: single-level pointer
+    ParallaxBackground* parallaxBg;    // Lab: single-level pointer
+    LightingSystem* lightingSystem;    // Lab: single-level pointer
 
     // Level tracking
     int currentLevel;

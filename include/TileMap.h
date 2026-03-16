@@ -5,6 +5,10 @@
 #include <SFML/Graphics.hpp>
 #include <box2d/box2d.h>
 #include "PhysicsWorld.h"
+#include "ResourceManager.h"
+
+// Forward declaration
+struct TmxMapData;
 
 // Tile types used in level files
 // '.' = empty, '#' = solid, 'P' = player spawn, 'E' = exit, 'R' = remnant spawn
@@ -26,12 +30,12 @@ enum class TileType {
 //   This directly covers multi-level pointers and higher-dimension
 //   pointer arithmetic lab requirements.
 //
-// Level file format (text):
-//   First line: ROWS COLS TILE_SIZE
-//   Remaining lines: grid characters (see TileType mapping above)
+// Supports two loading modes:
+//   1. Text format: loadFromFile() — legacy text-based level files
+//   2. Tiled format: loadFromTmx() — .tmx XML maps with tileset textures
 //
 // Lab requirements covered:
-//   - Multi-level pointers: TileType** grid
+//   - Multi-level pointers: TileType** grid, int** tileGids
 //   - Higher dimension pointer arithmetic: *(*(grid + row) + col)
 //   - Exception handling: file open/parse errors
 
@@ -40,10 +44,15 @@ public:
     TileMap();
     ~TileMap();
 
-    // Load a level from a text file.
+    // Load a level from a text file (legacy format).
     // Throws std::runtime_error on failure.
     // Lab: exception handling
     void loadFromFile(const std::string& filepath);
+
+    // Load a level from a Tiled .tmx file with tileset textures.
+    // Throws std::runtime_error on failure.
+    // Lab: exception handling
+    void loadFromTmx(const std::string& filepath, ResourceManager<sf::Texture>& textures);
 
     // Create Box2D static bodies for all solid tiles.
     void createBodies(PhysicsWorld* physics);
@@ -72,9 +81,17 @@ public:
 
 private:
     TileType** grid;        // Lab: multi-level pointer (pointer to array of row pointers)
+    int** tileGids;         // Lab: multi-level pointer (tile GIDs for textured rendering)
     int rows;
     int cols;
     float tileSize;         // Size of each tile in meters
+
+    // Tileset rendering data (populated by loadFromTmx)
+    sf::Texture* tilesetTexture;    // Lab: single-level pointer (owned by ResourceManager)
+    int tilesetColumns;             // Tiles per row in tileset image
+    int tilesetTileWidth;           // Pixel width of one tileset tile
+    int tilesetTileHeight;          // Pixel height of one tileset tile
+    bool useTileset;                // True if loaded from .tmx with tileset
 
     sf::Vector2f playerSpawn;
     sf::Vector2f exitPosition;

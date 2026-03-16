@@ -1,7 +1,11 @@
 #include "Player.h"
+#include <cmath>
 
-Player::Player(PhysicsWorld* physics, float startX, float startY)
+Player::Player(PhysicsWorld* physics, float startX, float startY, sf::Texture& spritesheet)
     : physics(physics)
+    , frameSize(128, 128)
+    , animState(AnimState::IDLE)
+    , facingRight(true)
     , groundContactCount(0)
     , leftWallContactCount(0)
     , rightWallContactCount(0)
@@ -51,14 +55,16 @@ Player::Player(PhysicsWorld* physics, float startX, float startY)
         Constants::FIXTURE_RIGHT_WALL_SENSOR
     );
 
-    // SFML visual shape
-    float pixelW = Constants::PLAYER_WIDTH  * Constants::PPM;
-    float pixelH = Constants::PLAYER_HEIGHT * Constants::PPM;
-    shape.setSize(sf::Vector2f(pixelW, pixelH));
-    shape.setOrigin(pixelW / 2.0f, pixelH / 2.0f);  // Center origin for Box2D alignment
-    shape.setFillColor(sf::Color(74, 106, 138));      // Muted blue-gray
-    shape.setOutlineColor(sf::Color(90, 130, 170));
-    shape.setOutlineThickness(1.0f);
+    // SFML sprite setup
+    sprite.setTexture(spritesheet);
+    sprite.setOrigin(frameSize.x / 2.0f, frameSize.y / 2.0f);
+
+    // Register animations (row, frameCount, frameSize, frameDuration)
+    animator.addAnimation("idle", Animation(0, 6, frameSize, 0.15f));
+    animator.addAnimation("run",  Animation(1, 8, frameSize, 0.08f));
+    animator.addAnimation("jump", Animation(2, 3, frameSize, 0.12f));
+    animator.addAnimation("fall", Animation(3, 3, frameSize, 0.10f));
+    animator.play("idle");
 }
 
 void Player::handleInput(const InputManager& input) {
@@ -111,26 +117,55 @@ void Player::handleInput(const InputManager& input) {
             body->ApplyLinearImpulseToCenter(b2Vec2(hImpulse, vImpulse), true);
         }
     }
-
-    // Visual feedback: tint slightly when sprinting
-    if (sprinting) {
-        shape.setFillColor(sf::Color(90, 120, 155));
-    } else {
-        shape.setFillColor(sf::Color(74, 106, 138));
-    }
 }
 
 void Player::update(float dt) {
-    // Physics handles all position updates via Box2D.
+    updateAnimState();
+    animator.update(dt, sprite);
+    syncSpriteToBody();
 }
 
 void Player::render(sf::RenderWindow& window) {
-    // Convert Box2D world position (meters, Y-up) to SFML screen position (pixels, Y-down)
+    window.draw(sprite);
+}
+
+void Player::updateAnimState() {
+    b2Vec2 vel = body->GetLinearVelocity();
+    AnimState newState = animState;
+
+    if (!isOnGround()) {
+        // Box2D Y is up: positive = rising, negative = falling
+        newState = (vel.y > 0.5f) ? AnimState::JUMP : AnimState::FALL;
+    } else {
+        newState = (std::abs(vel.x) > 0.5f) ? AnimState::RUN : AnimState::IDLE;
+    }
+
+    // Flip sprite based on horizontal movement direction
+    if (vel.x > 0.1f)       facingRight = true;
+    else if (vel.x < -0.1f) facingRight = false;
+
+    // Scale sprite so its height matches the physics body's pixel height
+    float physPixelH = Constants::PLAYER_HEIGHT * Constants::PPM;
+    float scaleY = physPixelH / static_cast<float>(frameSize.y);
+    float scaleX = facingRight ? scaleY : -scaleY;
+    sprite.setScale(scaleX, scaleY);
+
+    // Switch animation if state changed
+    if (newState != animState) {
+        animState = newState;
+        switch (animState) {
+            case AnimState::IDLE: animator.play("idle");          break;
+            case AnimState::RUN:  animator.play("run");           break;
+            case AnimState::JUMP: animator.play("jump", false);   break;
+            case AnimState::FALL: animator.play("fall");          break;
+        }
+    }
+}
+
+void Player::syncSpriteToBody() {
     b2Vec2 bodyPos = body->GetPosition();                   // Lab: arrow operator
     sf::Vector2f screenPos = physics->toScreen(bodyPos);    // Lab: arrow operator
-
-    shape.setPosition(screenPos);
-    window.draw(shape);
+    sprite.setPosition(screenPos);
 }
 
 void Player::beginGroundContact() {

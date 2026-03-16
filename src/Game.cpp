@@ -10,6 +10,8 @@ Game::Game()
     , player(nullptr)
     , tileMap(nullptr)
     , particleSystem(nullptr)
+    , parallaxBg(nullptr)
+    , lightingSystem(nullptr)
     , currentState(GameState::Menu)
     , currentLevel(0)
     , endingTimer(0.0f)
@@ -34,6 +36,30 @@ Game::Game()
 
     // Create particle system -- Lab: single-level pointer via new
     particleSystem = new ParticleSystem(winW, winH);
+
+    // Create parallax background -- Lab: single-level pointer via new
+    parallaxBg = new ParallaxBackground();
+    try {
+        sf::Texture& bgFar  = textures.get("bg_far",  "assets/textures/bg_far.png");
+        sf::Texture& bgMid  = textures.get("bg_mid",  "assets/textures/bg_mid.png");
+        sf::Texture& bgNear = textures.get("bg_near", "assets/textures/bg_near.png");
+        bgFar.setRepeated(true);
+        bgMid.setRepeated(true);
+        bgNear.setRepeated(true);
+        parallaxBg->addLayer(bgFar,  0.1f);   // Farthest: dark sky/building exterior
+        parallaxBg->addLayer(bgMid,  0.3f);   // Mid: blurred hallway depth
+        parallaxBg->addLayer(bgNear, 0.6f);   // Near: foreground fog/details
+    }
+    catch (const std::runtime_error& e) {
+        std::cerr << "[Game] Parallax textures not found: " << e.what() << std::endl;
+    }
+
+    // Create lighting system -- Lab: single-level pointer via new
+    lightingSystem = new LightingSystem(
+        static_cast<unsigned int>(winW),
+        static_cast<unsigned int>(winH)
+    );
+    lightingSystem->setAmbientLevel(200);  // TODO: lower to ~25 when real art is added
 
     // Setup vignette overlay for horror atmosphere
     float vigSize = 120.0f;
@@ -75,6 +101,12 @@ Game::Game()
 
 Game::~Game() {
     clearLevel();
+
+    delete lightingSystem;
+    lightingSystem = nullptr;
+
+    delete parallaxBg;
+    parallaxBg = nullptr;
 
     delete particleSystem;
     particleSystem = nullptr;
@@ -172,13 +204,15 @@ void Game::loadLevel(int levelIndex) {
 
     // Spawn player at the level's spawn point
     sf::Vector2f spawn = tileMap->getPlayerSpawn();
-    player = new Player(physics, spawn.x, spawn.y);
+    sf::Texture& playerTex = textures.get("player", "assets/textures/player.png");
+    player = new Player(physics, spawn.x, spawn.y, playerTex);
     entities.push_back(player);
 
     // Spawn Remnants at marked positions
+    sf::Texture& remnantTex = textures.get("remnant", "assets/textures/remnant.png");
     const auto& remnantPositions = tileMap->getRemnantSpawns();
     for (const auto& pos : remnantPositions) {
-        Remnant* remnant = new Remnant(physics, pos.x, pos.y);
+        Remnant* remnant = new Remnant(physics, pos.x, pos.y, remnantTex);
         remnants.push_back(remnant);
         entities.push_back(remnant);
     }
@@ -337,6 +371,11 @@ void Game::render() {
 
     applyGameplayView();
 
+    // Draw parallax background layers (behind everything)
+    if (parallaxBg) {
+        parallaxBg->render(window, window.getView());
+    }
+
     // Draw tile map
     if (tileMap) {
         tileMap->render(window, physics);
@@ -350,8 +389,48 @@ void Game::render() {
     // Draw particles -- Lab: STL list (internally)
     particleSystem->render(window);
 
-    // UI and overlays are drawn in fixed screen space.
+    // Save gameplay view for coordinate mapping, then switch to screen space
+    sf::View gameplayView = window.getView();
     window.setView(window.getDefaultView());
+
+    // Dynamic lighting pass (composited in screen space)
+    if (lightingSystem) {
+        lightingSystem->clearLights();
+
+        // Player light: warm flickering glow (lantern/phone screen)
+        if (player) {
+            b2Vec2 bodyPos = player->getBody()->GetPosition();
+            sf::Vector2f worldPos = physics->toScreen(bodyPos);
+            sf::Vector2i pixelPos = window.mapCoordsToPixel(worldPos, gameplayView);
+            lightingSystem->addLight(
+                sf::Vector2f(static_cast<float>(pixelPos.x), static_cast<float>(pixelPos.y)),
+                300.0f,
+                sf::Color(255, 220, 180),  // Warm light
+                0.8f,
+                0.3f                        // Flicker
+            );
+        }
+
+        // Remnant cold glow -- Lab: STL vector iteration with STL iterators
+        for (auto it = remnants.begin(); it != remnants.end(); ++it) {
+            float dist = (*it)->getDistanceToPlayer();
+            if (dist < Remnant::DETECTION_RANGE) {
+                b2Vec2 remBody = (*it)->getBody()->GetPosition();
+                sf::Vector2f remWorld = physics->toScreen(remBody);
+                sf::Vector2i remPixel = window.mapCoordsToPixel(remWorld, gameplayView);
+                float intensity = 0.3f * (1.0f - dist / Remnant::DETECTION_RANGE);
+                lightingSystem->addLight(
+                    sf::Vector2f(static_cast<float>(remPixel.x), static_cast<float>(remPixel.y)),
+                    150.0f,
+                    sf::Color(100, 120, 200),  // Cold blue
+                    intensity,
+                    0.1f
+                );
+            }
+        }
+
+        lightingSystem->render(window, Constants::TIME_STEP);
+    }
 
     // Draw vignette overlay
     renderVignette();
