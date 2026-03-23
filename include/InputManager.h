@@ -31,9 +31,18 @@ public:
     // Key was just released this frame (held last frame, not this frame).
     bool isKeyReleased(sf::Keyboard::Key key) const;
 
+    // Space bar double-click detection (for higher jumps).
+    // Returns true if space bar was double-clicked within the time window.
+    bool isSpaceBarDoubleClicked() const;
+
 private:
     std::set<sf::Keyboard::Key> currentKeys;    // Lab: STL set — keys held this frame
     std::set<sf::Keyboard::Key> previousKeys;   // Lab: STL set — keys held last frame
+
+    // Double-click tracking for space bar
+    int   spacePressCount;              // Number of presses in current window
+    float timeSinceLastSpacePress;      // Time elapsed since last space key press (seconds)
+    static const float DOUBLE_CLICK_WINDOW;  // Time window for recognizing double-click (0.3 seconds)
 
     // Keys we actually care about tracking (avoids polling all 100+ keys)
     static const sf::Keyboard::Key trackedKeys[];

@@ -19,6 +19,7 @@ namespace Constants {
     constexpr float PLAYER_HEIGHT = 1.8f;             // meters (90 pixels at PPM=50)
     constexpr float PLAYER_MOVE_SPEED = 6.0f;         // m/s max horizontal speed
     constexpr float PLAYER_JUMP_IMPULSE = 9.0f;       // m/s initial upward velocity
+    constexpr float PLAYER_DOUBLE_JUMP_IMPULSE = 13.5f; // m/s (1.5x multiplier for double-click)
     constexpr float PLAYER_GROUND_ACCEL = 0.15f;      // Velocity smoothing on ground (0-1, lower = heavier)
     constexpr float PLAYER_AIR_ACCEL = 0.08f;         // Velocity smoothing in air (less control)
     constexpr float PLAYER_DENSITY = 1.0f;            // kg/m^2

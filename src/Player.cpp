@@ -101,8 +101,14 @@ void Player::handleInput(const InputManager& input) {
 
     if (jumpKeyDown) {
         if (isOnGround()) {
-            // Normal jump
-            float impulse = Constants::PLAYER_JUMP_IMPULSE * body->GetMass();
+            // Check for double-click space bar for higher jump
+            float jumpImpulse = Constants::PLAYER_JUMP_IMPULSE;
+            if (input.isSpaceBarDoubleClicked()) {
+                jumpImpulse = Constants::PLAYER_DOUBLE_JUMP_IMPULSE;
+            }
+
+            // Normal jump or double-click higher jump
+            float impulse = jumpImpulse * body->GetMass();
             body->ApplyLinearImpulseToCenter(b2Vec2(0.0f, impulse), true);
         }
         else if (isTouchingWall()) {
