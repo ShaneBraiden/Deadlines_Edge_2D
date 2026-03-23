@@ -26,6 +26,7 @@ const float InputManager::DOUBLE_CLICK_WINDOW = 0.3f;  // 300ms to double-click
 InputManager::InputManager() 
     : spacePressCount(0)
     , timeSinceLastSpacePress(0.0f)
+    , spaceDoubleClickedThisFrame(false)
 {
 }
 
@@ -41,18 +42,29 @@ void InputManager::update() {
         }
     }
 
-    // Update double-click timer (assuming ~60 FPS, so dt ≈ 0.0167f per frame)
-    timeSinceLastSpacePress += 0.0167f;  // Approximate frame time
+    // Reset per-frame latch before recomputing double-click state.
+    spaceDoubleClickedThisFrame = false;
+
+    // Update double-click timer with real elapsed frame time (FPS independent).
+    timeSinceLastSpacePress += frameClock.restart().asSeconds();
     
     // If we're outside the double-click window, reset the space press counter
     if (timeSinceLastSpacePress > DOUBLE_CLICK_WINDOW) {
         spacePressCount = 0;
     }
 
-    // Detect space bar press and increment counter
+    // Detect space bar press and evaluate/advance click sequence
     if (isKeyPressed(sf::Keyboard::Space)) {
-        spacePressCount++;
-        timeSinceLastSpacePress = 0.0f;  // Reset timer on each press
+        if (spacePressCount == 1 && timeSinceLastSpacePress <= DOUBLE_CLICK_WINDOW) {
+            // Second press within window => one-frame double-click event.
+            spaceDoubleClickedThisFrame = true;
+            spacePressCount = 0;
+            timeSinceLastSpacePress = DOUBLE_CLICK_WINDOW + 1.0f;
+        } else {
+            // Start (or restart) click sequence from this press.
+            spacePressCount = 1;
+            timeSinceLastSpacePress = 0.0f;
+        }
     }
 }
 
@@ -79,11 +91,6 @@ bool InputManager::isKeyReleased(sf::Keyboard::Key key) const {
 }
 
 bool InputManager::isSpaceBarDoubleClicked() const {
-    // Return true only when we detect exactly 2 presses within the double-click window
-    // After the second press is detected, reset to 0 will happen on the next frame
-    if (spacePressCount == 2 && isKeyPressed(sf::Keyboard::Space)) {
-        return true;
-    }
-    return false;
+    return spaceDoubleClickedThisFrame;
 }
 

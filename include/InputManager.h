@@ -1,6 +1,7 @@
 #pragma once
 
 #include <SFML/Window/Keyboard.hpp>
+#include <SFML/System/Clock.hpp>
 #include <set>
 
 // Tracks keyboard input state across frames using STL set.
@@ -32,7 +33,7 @@ public:
     bool isKeyReleased(sf::Keyboard::Key key) const;
 
     // Space bar double-click detection (for higher jumps).
-    // Returns true if space bar was double-clicked within the time window.
+    // Returns true on the frame where the second click is detected.
     bool isSpaceBarDoubleClicked() const;
 
 private:
@@ -42,6 +43,8 @@ private:
     // Double-click tracking for space bar
     int   spacePressCount;              // Number of presses in current window
     float timeSinceLastSpacePress;      // Time elapsed since last space key press (seconds)
+    bool  spaceDoubleClickedThisFrame;  // Latched during update(), consumed as read-only query
+    sf::Clock frameClock;               // Real elapsed time between update() calls
     static const float DOUBLE_CLICK_WINDOW;  // Time window for recognizing double-click (0.3 seconds)
 
     // Keys we actually care about tracking (avoids polling all 100+ keys)

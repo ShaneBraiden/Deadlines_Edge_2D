@@ -104,7 +104,14 @@ void Player::handleInput(const InputManager& input) {
             // Check for double-click space bar for higher jump
             float jumpImpulse = Constants::PLAYER_JUMP_IMPULSE;
             if (input.isSpaceBarDoubleClicked()) {
-                jumpImpulse = Constants::PLAYER_DOUBLE_JUMP_IMPULSE;
+                // h = v^2/(2g). Add ~half-screen extra height over normal jump.
+                float normalJumpHeight =
+                    (Constants::PLAYER_JUMP_IMPULSE * Constants::PLAYER_JUMP_IMPULSE) /
+                    (2.0f * Constants::GRAVITY);
+                float extraHeight =
+                    physics->getWorldHeight() * Constants::PLAYER_DOUBLE_CLICK_EXTRA_SCREEN_HEIGHT;
+                float targetHeight = normalJumpHeight + extraHeight;
+                jumpImpulse = std::sqrt(2.0f * Constants::GRAVITY * targetHeight);
             }
 
             // Normal jump or double-click higher jump
