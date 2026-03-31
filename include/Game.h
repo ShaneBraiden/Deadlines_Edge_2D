@@ -8,7 +8,7 @@
 #include "Player.h"
 #include "InputManager.h"
 #include "GameState.h"
-#include "ResourceManager.h"
+#include "AssetManager.h"
 #include "ParticleSystem.h"
 #include "ParallaxBackground.h"
 #include "LightingSystem.h"
@@ -17,12 +17,12 @@
 // Runs the main loop with a fixed-timestep accumulator pattern.
 //
 // Lab requirements covered:
-//   - Single-level pointers: PhysicsWorld*, Player*, Entity*
-//   - Arrow operator: physics->step(), entity->update()
+//   - Single-level pointers: PhysicsWorld*, Player*, Entity*, AssetManager*
+//   - Arrow operator: physics->step(), entity->update(), assets->get<T>()
 //   - STL vector: std::vector<Entity*> for polymorphic entity storage
 //   - STL iterators: explicit iterator loops over entities
-//   - Class templates: ResourceManager<sf::Texture>, ResourceManager<sf::Font>
-//   - Exception handling: try/catch around resource preloading
+//   - Class templates: AssetManager::get<T>() for type-safe asset retrieval
+//   - Exception handling: AssetLoadException propagates to main.cpp
 
 class Game {
 public:
@@ -37,7 +37,6 @@ private:
     void spawnObstacle();
     void updateObstacles(float dt);
     bool checkObstacleCollision() const;
-    void ensureGeneratedAssets();
 
     void processEvents();
     void update(float dt);
@@ -70,11 +69,10 @@ private:
     // Systems
     InputManager inputManager;
     GameState currentState;
-    ResourceManager<sf::Texture> textures;
-    ResourceManager<sf::Font> fonts;
+    AssetManager* assets;               // Lab: single-level pointer, template get<T>()
     ParticleSystem* particleSystem;     // Lab: single-level pointer
-    ParallaxBackground* parallaxBg;    // Lab: single-level pointer
-    LightingSystem* lightingSystem;    // Lab: single-level pointer
+    ParallaxBackground* parallaxBg;     // Lab: single-level pointer
+    LightingSystem* lightingSystem;     // Lab: single-level pointer
 
     // Runner systems
     std::vector<RunnerObstacle> obstacles;
@@ -85,10 +83,6 @@ private:
     float bestScore;
     bool gameOver;
     std::mt19937 rng;
-
-    sf::Texture* chairTexture;
-    sf::Texture* benchTexture;
-    sf::Texture* bookTexture;
 
     float laneX;
     float groundY;

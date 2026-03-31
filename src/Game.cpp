@@ -1,147 +1,12 @@
 #include "Game.h"
 #include "Constants.h"
+#include "AssetKeys.h"
 #include <algorithm>
 #include <cmath>
 #include <ctime>
-#include <filesystem>
 #include <iostream>
 
 namespace {
-
-void fillRect(sf::Image& image, int x, int y, int w, int h, const sf::Color& color) {
-    for (int py = y; py < y + h; ++py) {
-        for (int px = x; px < x + w; ++px) {
-            if (px >= 0 && py >= 0 && px < static_cast<int>(image.getSize().x) && py < static_cast<int>(image.getSize().y)) {
-                image.setPixel(static_cast<unsigned int>(px), static_cast<unsigned int>(py), color);
-            }
-        }
-    }
-}
-
-void drawStudentFrame(sf::Image& image, int frameX, int frameY, int legOffset, bool jump, bool fall) {
-    const sf::Color skin(221, 187, 156);
-    const sf::Color hair(54, 38, 28);
-    const sf::Color hoodie(50, 65, 90);
-    const sf::Color hoodieLight(65, 82, 110);
-    const sf::Color pant(28, 36, 56);
-    const sf::Color shoe(230, 230, 230);
-    const sf::Color bag(86, 45, 30);
-    const sf::Color bagStrap(70, 38, 25);
-    const sf::Color outline(20, 20, 30);
-
-    // SIDE PROFILE view - student running to the right
-    const int s = 3;  // Scale factor
-    int bx = frameX + 30;  // Base X (centered in 128px frame)
-    int by = frameY + 8;   // Base Y
-
-    // --- HEAD (side profile - oval shape) ---
-    // Hair (back of head, drawn first)
-    fillRect(image, bx + 8*s, by + 2*s, 6*s, 10*s, hair);
-    // Head outline
-    fillRect(image, bx + 10*s - 1, by + 3*s - 1, 8*s + 2, 9*s + 2, outline);
-    // Face (side, narrower)
-    fillRect(image, bx + 10*s, by + 3*s, 8*s, 9*s, skin);
-    // Hair on top
-    fillRect(image, bx + 9*s, by + 1*s, 8*s, 4*s, hair);
-    // Eye (single, side view)
-    fillRect(image, bx + 15*s, by + 5*s, 2*s, 2*s, outline);
-    // Ear
-    fillRect(image, bx + 9*s, by + 6*s, 2*s, 3*s, skin);
-
-    int torsoLift = jump ? -2*s : (fall ? 1*s : 0);
-
-    // --- BACKPACK (behind body) ---
-    fillRect(image, bx + 4*s - 1, by + 13*s + torsoLift - 1, 7*s + 2, 12*s + 2, outline);
-    fillRect(image, bx + 4*s, by + 13*s + torsoLift, 7*s, 12*s, bag);
-    // Backpack strap
-    fillRect(image, bx + 10*s, by + 14*s + torsoLift, 2*s, 8*s, bagStrap);
-
-    // --- TORSO (side view - narrower) ---
-    fillRect(image, bx + 9*s - 1, by + 12*s + torsoLift - 1, 10*s + 2, 14*s + 2, outline);
-    fillRect(image, bx + 9*s, by + 12*s + torsoLift, 10*s, 14*s, hoodie);
-    // Hoodie highlight
-    fillRect(image, bx + 14*s, by + 13*s + torsoLift, 4*s, 12*s, hoodieLight);
-
-    // --- ARMS (pumping motion for running) ---
-    int armSwing = legOffset * s;
-    // Back arm
-    fillRect(image, bx + 6*s - 1, by + 14*s + torsoLift - armSwing - 1, 4*s + 2, 8*s + 2, outline);
-    fillRect(image, bx + 6*s, by + 14*s + torsoLift - armSwing, 4*s, 8*s, skin);
-    // Front arm
-    fillRect(image, bx + 17*s - 1, by + 14*s + torsoLift + armSwing - 1, 4*s + 2, 8*s + 2, outline);
-    fillRect(image, bx + 17*s, by + 14*s + torsoLift + armSwing, 4*s, 8*s, skin);
-
-    // --- LEGS (running motion) ---
-    int frontLegX = bx + 14*s;
-    int backLegX = bx + 9*s;
-    int legBaseY = by + 26*s + torsoLift;
-
-    int frontLegOffset = jump ? 2*s : (fall ? -1*s : legOffset * s);
-    int backLegOffset = jump ? -2*s : (fall ? 1*s : -legOffset * s);
-
-    // Back leg
-    fillRect(image, backLegX - 1, legBaseY + backLegOffset - 1, 5*s + 2, 10*s + 2, outline);
-    fillRect(image, backLegX, legBaseY + backLegOffset, 5*s, 10*s, pant);
-    // Back shoe
-    fillRect(image, backLegX - 1*s - 1, legBaseY + 9*s + backLegOffset - 1, 7*s + 2, 3*s + 2, outline);
-    fillRect(image, backLegX - 1*s, legBaseY + 9*s + backLegOffset, 7*s, 3*s, shoe);
-
-    // Front leg
-    fillRect(image, frontLegX - 1, legBaseY + frontLegOffset - 1, 5*s + 2, 10*s + 2, outline);
-    fillRect(image, frontLegX, legBaseY + frontLegOffset, 5*s, 10*s, pant);
-    // Front shoe
-    fillRect(image, frontLegX - 1, legBaseY + 9*s + frontLegOffset - 1, 7*s + 2, 3*s + 2, outline);
-    fillRect(image, frontLegX, legBaseY + 9*s + frontLegOffset, 7*s, 3*s, shoe);
-}
-
-void generateStudentSheet(const std::string& path) {
-    sf::Image image;
-    image.create(1024, 512, sf::Color(0, 0, 0, 0));
-
-    for (int f = 0; f < 8; ++f) {
-        int step = (f % 4) - 2;
-        drawStudentFrame(image, f * 128, 0, step, false, false);
-        drawStudentFrame(image, f * 128, 128, step, false, false);
-        drawStudentFrame(image, f * 128, 256, 0, true, false);
-        drawStudentFrame(image, f * 128, 384, 0, false, true);
-    }
-
-    image.saveToFile(path);
-}
-
-void generateChair(const std::string& path) {
-    sf::Image image;
-    image.create(32, 32, sf::Color(0, 0, 0, 0));
-    fillRect(image, 6, 5, 20, 4, sf::Color(80, 55, 38));
-    fillRect(image, 8, 9, 3, 15, sf::Color(70, 45, 30));
-    fillRect(image, 21, 9, 3, 15, sf::Color(70, 45, 30));
-    fillRect(image, 6, 20, 20, 4, sf::Color(96, 65, 45));
-    fillRect(image, 9, 24, 3, 7, sf::Color(60, 40, 26));
-    fillRect(image, 20, 24, 3, 7, sf::Color(60, 40, 26));
-    image.saveToFile(path);
-}
-
-void generateBench(const std::string& path) {
-    sf::Image image;
-    image.create(64, 32, sf::Color(0, 0, 0, 0));
-    fillRect(image, 4, 9, 56, 4, sf::Color(110, 78, 52));
-    fillRect(image, 4, 17, 56, 4, sf::Color(120, 86, 58));
-    fillRect(image, 10, 21, 4, 10, sf::Color(74, 52, 36));
-    fillRect(image, 50, 21, 4, 10, sf::Color(74, 52, 36));
-    fillRect(image, 26, 21, 4, 10, sf::Color(74, 52, 36));
-    fillRect(image, 34, 21, 4, 10, sf::Color(74, 52, 36));
-    image.saveToFile(path);
-}
-
-void generateBook(const std::string& path) {
-    sf::Image image;
-    image.create(28, 20, sf::Color(0, 0, 0, 0));
-    fillRect(image, 2, 2, 24, 15, sf::Color(145, 42, 42));
-    fillRect(image, 4, 4, 20, 11, sf::Color(176, 57, 57));
-    fillRect(image, 12, 2, 2, 15, sf::Color(240, 228, 190));
-    fillRect(image, 3, 17, 22, 2, sf::Color(230, 220, 180));
-    image.saveToFile(path);
-}
 
 float randomRange(std::mt19937& rng, float minV, float maxV) {
     std::uniform_real_distribution<float> dist(minV, maxV);
@@ -159,6 +24,7 @@ Game::Game()
     , parallaxBg(nullptr)
     , lightingSystem(nullptr)
     , currentState(GameState::Menu)
+    , assets(nullptr)
     , obstacleSpawnTimer(0.0f)
     , nextObstacleSpawnDelay(1.2f)
     , obstacleBaseSpeed(430.0f)
@@ -166,9 +32,6 @@ Game::Game()
     , bestScore(0.0f)
     , gameOver(false)
     , rng(static_cast<unsigned int>(std::time(nullptr)))
-    , chairTexture(nullptr)
-    , benchTexture(nullptr)
-    , bookTexture(nullptr)
     , laneX(0.0f)
     , groundY(0.0f)
 {
@@ -177,26 +40,20 @@ Game::Game()
     float winW = static_cast<float>(window.getSize().x);
     float winH = static_cast<float>(window.getSize().y);
 
-    ensureGeneratedAssets();
+    // Lab: single-level pointer + exception handling
+    // AssetManager::loadAll() throws AssetLoadException on failure,
+    // which propagates to main.cpp's try/catch
+    assets = new AssetManager();
+    assets->loadAll();
 
     physics = new PhysicsWorld(winW, winH);
     particleSystem = new ParticleSystem(winW, winH);
     parallaxBg = new ParallaxBackground();
 
-    try {
-        sf::Texture& bgFar = textures.get("bg_far", "assets/textures/bg_far.png");
-        sf::Texture& bgMid = textures.get("bg_mid", "assets/textures/bg_mid.png");
-        sf::Texture& bgNear = textures.get("bg_near", "assets/textures/bg_near.png");
-        bgFar.setRepeated(true);
-        bgMid.setRepeated(true);
-        bgNear.setRepeated(true);
-        parallaxBg->addLayer(bgFar, 0.10f);
-        parallaxBg->addLayer(bgMid, 0.28f);
-        parallaxBg->addLayer(bgNear, 0.54f);
-    }
-    catch (const std::runtime_error& e) {
-        std::cerr << "[Game] Parallax textures not loaded: " << e.what() << std::endl;
-    }
+    // Lab: arrow operator + template method call
+    parallaxBg->addLayer(assets->get<sf::Texture>(AssetKeys::BG_FAR), 0.10f);
+    parallaxBg->addLayer(assets->get<sf::Texture>(AssetKeys::BG_MID), 0.28f);
+    parallaxBg->addLayer(assets->get<sf::Texture>(AssetKeys::BG_NEAR), 0.54f);
 
     lightingSystem = new LightingSystem(
         static_cast<unsigned int>(winW),
@@ -220,8 +77,6 @@ Game::Game()
     vignetteRight.setSize(sf::Vector2f(vigSize, winH));
     vignetteRight.setPosition(winW - vigSize, 0.0f);
     vignetteRight.setFillColor(sf::Color(0, 0, 0, 70));
-
-    fonts.preload("main", "assets/fonts/main.ttf");
 }
 
 Game::~Game() {
@@ -241,21 +96,9 @@ Game::~Game() {
 
     delete physics;
     physics = nullptr;
-}
 
-void Game::ensureGeneratedAssets() {
-    namespace fs = std::filesystem;
-    fs::create_directories("assets/textures");
-
-    const std::string studentPath = "assets/textures/student_runner.png";
-    const std::string chairPath = "assets/textures/obstacle_chair.png";
-    const std::string benchPath = "assets/textures/obstacle_bench.png";
-    const std::string bookPath = "assets/textures/obstacle_book.png";
-
-    if (!fs::exists(studentPath)) generateStudentSheet(studentPath);
-    if (!fs::exists(chairPath)) generateChair(chairPath);
-    if (!fs::exists(benchPath)) generateBench(benchPath);
-    if (!fs::exists(bookPath)) generateBook(bookPath);
+    delete assets;
+    assets = nullptr;
 }
 
 void Game::startGameFromMenu() {
@@ -293,18 +136,15 @@ void Game::resetRun() {
         groundHalfHeightMeters
     );
 
+    // Lab: arrow operator + template method call
     // Position player so their feet are slightly above ground, then let them drop
-    sf::Texture& playerTex = textures.get("player_runner", "assets/textures/student_runner.png");
+    sf::Texture& playerTex = assets->get<sf::Texture>(AssetKeys::PLAYER_SHEET);
     float playerHalfHeightPixels = Constants::PLAYER_HEIGHT * Constants::PPM * 0.5f;
     float playerCenterScreenY = groundY - playerHalfHeightPixels - 5.0f;  // 5 pixels above ground
     b2Vec2 playerSpawn = physics->toWorld(sf::Vector2f(laneX, playerCenterScreenY));
     player = new Player(physics, playerSpawn.x, playerSpawn.y, playerTex);
     player->setRunnerMode(true);
     entities.push_back(player);
-
-    chairTexture = &textures.get("ob_chair", "assets/textures/obstacle_chair.png");
-    benchTexture = &textures.get("ob_bench", "assets/textures/obstacle_bench.png");
-    bookTexture = &textures.get("ob_book", "assets/textures/obstacle_book.png");
 
     obstacleSpawnTimer = 0.0f;
     nextObstacleSpawnDelay = 1.1f;
@@ -314,10 +154,6 @@ void Game::resetRun() {
 }
 
 void Game::spawnObstacle() {
-    if (!chairTexture || !benchTexture || !bookTexture) {
-        return;
-    }
-
     std::uniform_int_distribution<int> typeDist(0, 99);
     int roll = typeDist(rng);
 
@@ -328,16 +164,17 @@ void Game::spawnObstacle() {
     float spawnX = static_cast<float>(window.getSize().x) + randomRange(rng, 60.0f, 260.0f);
     float spawnY = groundY;
 
+    // Lab: arrow operator + template method call
     if (roll < 45) {
-        obstacle.sprite.setTexture(*chairTexture);
+        obstacle.sprite.setTexture(assets->get<sf::Texture>(AssetKeys::OBSTACLE_CHAIR));
         obstacle.sprite.setScale(4.5f, 4.5f);  // Bigger obstacles for bigger player
     }
     else if (roll < 80) {
-        obstacle.sprite.setTexture(*benchTexture);
+        obstacle.sprite.setTexture(assets->get<sf::Texture>(AssetKeys::OBSTACLE_BENCH));
         obstacle.sprite.setScale(3.2f, 3.2f);
     }
     else {
-        obstacle.sprite.setTexture(*bookTexture);
+        obstacle.sprite.setTexture(assets->get<sf::Texture>(AssetKeys::OBSTACLE_BOOK));
         obstacle.sprite.setScale(2.0f, 2.0f);  // Smaller flying book
         // Flying book at head height — duck to avoid, don't jump
         spawnY = groundY - 100.0f;
@@ -598,7 +435,8 @@ void Game::render() {
 
     renderVignette();
 
-    sf::Font& font = fonts.get("main", "assets/fonts/main.ttf");
+    // Lab: arrow operator + template method call
+    sf::Font& font = assets->get<sf::Font>(AssetKeys::MAIN_FONT);
 
     sf::Text scoreText;
     scoreText.setFont(font);
@@ -638,7 +476,7 @@ void Game::render() {
 void Game::renderMenu() {
     float winW = static_cast<float>(window.getSize().x);
     float winH = static_cast<float>(window.getSize().y);
-    sf::Font& font = fonts.get("main", "assets/fonts/main.ttf");
+    sf::Font& font = assets->get<sf::Font>(AssetKeys::MAIN_FONT);
 
     sf::RectangleShape band;
     band.setSize(sf::Vector2f(winW, 190.0f));
@@ -700,7 +538,7 @@ void Game::renderMenu() {
 void Game::renderPause() {
     float winW = static_cast<float>(window.getSize().x);
     float winH = static_cast<float>(window.getSize().y);
-    sf::Font& font = fonts.get("main", "assets/fonts/main.ttf");
+    sf::Font& font = assets->get<sf::Font>(AssetKeys::MAIN_FONT);
 
     sf::RectangleShape overlay;
     overlay.setSize(sf::Vector2f(winW, winH));
@@ -731,7 +569,7 @@ void Game::renderPause() {
 void Game::renderGameOver() {
     float winW = static_cast<float>(window.getSize().x);
     float winH = static_cast<float>(window.getSize().y);
-    sf::Font& font = fonts.get("main", "assets/fonts/main.ttf");
+    sf::Font& font = assets->get<sf::Font>(AssetKeys::MAIN_FONT);
 
     sf::RectangleShape overlay;
     overlay.setSize(sf::Vector2f(winW, winH));
