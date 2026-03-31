@@ -3,13 +3,12 @@
 #include <SFML/Graphics.hpp>
 #include <vector>
 #include <string>
+#include <random>
 #include "PhysicsWorld.h"
 #include "Player.h"
-#include "Remnant.h"
 #include "InputManager.h"
 #include "GameState.h"
 #include "ResourceManager.h"
-#include "TileMap.h"
 #include "ParticleSystem.h"
 #include "ParallaxBackground.h"
 #include "LightingSystem.h"
@@ -34,22 +33,27 @@ public:
 
 private:
     void startGameFromMenu();
-    void applyGameplayView();
+    void resetRun();
+    void spawnObstacle();
+    void updateObstacles(float dt);
+    bool checkObstacleCollision() const;
+    void ensureGeneratedAssets();
 
     void processEvents();
     void update(float dt);
     void render();
 
-    // Level management
-    void loadLevel(int levelIndex);
-    void clearLevel();
-    void checkLevelTransition();
-
     // Menu/ending rendering
     void renderMenu();
     void renderPause();
-    void renderEnding();
+    void renderGameOver();
     void renderVignette();
+
+    struct RunnerObstacle {
+        sf::Sprite sprite;
+        float speed;
+        bool passed;
+    };
 
     sf::RenderWindow window;
 
@@ -61,27 +65,33 @@ private:
 
     // Non-owning pointers
     Player* player;
-    std::vector<Remnant*> remnants;
+    b2Body* groundBody;
 
     // Systems
     InputManager inputManager;
     GameState currentState;
     ResourceManager<sf::Texture> textures;
     ResourceManager<sf::Font> fonts;
-    TileMap* tileMap;                    // Lab: single-level pointer
     ParticleSystem* particleSystem;     // Lab: single-level pointer
     ParallaxBackground* parallaxBg;    // Lab: single-level pointer
     LightingSystem* lightingSystem;    // Lab: single-level pointer
 
-    // Level tracking
-    int currentLevel;
-    static const int TOTAL_LEVELS = 3;
-    std::string levelFiles[TOTAL_LEVELS];
+    // Runner systems
+    std::vector<RunnerObstacle> obstacles;
+    float obstacleSpawnTimer;
+    float nextObstacleSpawnDelay;
+    float obstacleBaseSpeed;
+    float score;
+    float bestScore;
+    bool gameOver;
+    std::mt19937 rng;
 
-    // Ending sequence
-    float endingTimer;
-    float endingFadeAlpha;
-    bool endingTriggered;
+    sf::Texture* chairTexture;
+    sf::Texture* benchTexture;
+    sf::Texture* bookTexture;
+
+    float laneX;
+    float groundY;
 
     // Vignette overlay
     sf::RectangleShape vignetteTop;

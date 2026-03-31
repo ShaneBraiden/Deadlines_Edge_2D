@@ -10,7 +10,8 @@ enum class AnimState {
     IDLE,
     RUN,
     JUMP,
-    FALL
+    FALL,
+    DUCK
 };
 
 // Ethan Calloway — the player character.
@@ -35,9 +36,12 @@ class Player : public Entity {
 public:
     Player(PhysicsWorld* physics, float startX, float startY, sf::Texture& spritesheet);
 
+    void setRunnerMode(bool enabled);
     void handleInput(const InputManager& input);
     void update(float dt) override;
     void render(sf::RenderWindow& window) override;
+    sf::FloatRect getBoundsScreen() const;
+    bool isDucking() const;
 
     // Contact tracking (called by ContactListener)
     void beginGroundContact() override;
@@ -64,4 +68,6 @@ private:
     int  leftWallContactCount;         // >0 means touching left wall
     int  rightWallContactCount;        // >0 means touching right wall
     bool sprinting;                    // Currently sprinting
+    bool runnerModeEnabled;            // Endless-runner movement mode
+    bool ducking;                      // Down key held (fast-fall or duck)
 };

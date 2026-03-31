@@ -9,16 +9,16 @@ namespace Constants {
 
     // -- Physics (Box2D) --
     constexpr float PPM = 50.0f;                     // Pixels per meter (scale factor)
-    constexpr float GRAVITY = 25.0f;                 // m/s^2 (applied as -Y in Box2D Y-up coords)
+    constexpr float GRAVITY = 38.0f;                 // m/s^2 (snappy fall like Chrome Dino)
     constexpr float TIME_STEP = 1.0f / 60.0f;        // Fixed physics timestep (60 Hz)
     constexpr int   VELOCITY_ITERATIONS = 8;          // Box2D constraint solver iterations
     constexpr int   POSITION_ITERATIONS = 3;
 
     // -- Player (Ethan Calloway) --
-    constexpr float PLAYER_WIDTH  = 1.0f;             // meters (50 pixels at PPM=50)
-    constexpr float PLAYER_HEIGHT = 1.8f;             // meters (90 pixels at PPM=50)
+    constexpr float PLAYER_WIDTH  = 1.6f;             // meters (80 pixels at PPM=50)
+    constexpr float PLAYER_HEIGHT = 2.8f;             // meters (140 pixels at PPM=50) - BIGGER
     constexpr float PLAYER_MOVE_SPEED = 6.0f;         // m/s max horizontal speed
-    constexpr float PLAYER_JUMP_IMPULSE = 9.0f;       // m/s initial upward velocity
+    constexpr float PLAYER_JUMP_IMPULSE = 16.0f;      // m/s initial upward velocity - STRONGER
     constexpr float PLAYER_DOUBLE_CLICK_EXTRA_SCREEN_HEIGHT = 0.5f; // +50% of screen height above normal jump
     constexpr float PLAYER_GROUND_ACCEL = 0.15f;      // Velocity smoothing on ground (0-1, lower = heavier)
     constexpr float PLAYER_AIR_ACCEL = 0.08f;         // Velocity smoothing in air (less control)

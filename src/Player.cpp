@@ -10,6 +10,8 @@ Player::Player(PhysicsWorld* physics, float startX, float startY, sf::Texture& s
     , leftWallContactCount(0)
     , rightWallContactCount(0)
     , sprinting(false)
+    , runnerModeEnabled(false)
+    , ducking(false)
 {
     float halfW = Constants::PLAYER_WIDTH / 2.0f;
     float halfH = Constants::PLAYER_HEIGHT / 2.0f;
@@ -25,12 +27,12 @@ Player::Player(PhysicsWorld* physics, float startX, float startY, sf::Texture& s
     // Store 'this' pointer in body user data so ContactListener can reach us
     body->GetUserData().pointer = reinterpret_cast<uintptr_t>(this);   // Lab: pointer cast
 
-    // Foot sensor — thin box at the bottom of the player.
-    b2Vec2 footOffset(0.0f, -halfH);                 // Bottom edge (Y-up)
+    // Foot sensor — extends BELOW the player body to detect ground
+    b2Vec2 footOffset(0.0f, -halfH - 0.15f);          // Slightly below bottom edge
     physics->addSensorFixture(                        // Lab: arrow operator
         body,
-        halfW - 0.05f,     // sensor half-width
-        0.1f,              // sensor half-height (thin)
+        halfW * 0.8f,      // sensor half-width (slightly narrower than body)
+        0.2f,              // sensor half-height (thicker for reliable detection)
         footOffset,
         Constants::FIXTURE_FOOT_SENSOR
     );
@@ -67,23 +69,27 @@ Player::Player(PhysicsWorld* physics, float startX, float startY, sf::Texture& s
     animator.play("idle");
 }
 
+void Player::setRunnerMode(bool enabled) {
+    runnerModeEnabled = enabled;
+}
+
 void Player::handleInput(const InputManager& input) {
     // --- Sprint ---
-    sprinting = input.isKeyHeld(sf::Keyboard::LShift);
+    sprinting = !runnerModeEnabled && input.isKeyHeld(sf::Keyboard::LShift);
 
     // --- Horizontal movement ---
-    float desiredVelX = 0.0f;
+    float desiredVelX = runnerModeEnabled ? Constants::PLAYER_MOVE_SPEED : 0.0f;
     float moveSpeed = Constants::PLAYER_MOVE_SPEED;
     if (sprinting) {
         moveSpeed *= Constants::PLAYER_SPRINT_MULTIPLIER;
     }
 
-    if (input.isKeyHeld(sf::Keyboard::A) ||
-        input.isKeyHeld(sf::Keyboard::Left)) {
+    if (!runnerModeEnabled && (input.isKeyHeld(sf::Keyboard::A) ||
+        input.isKeyHeld(sf::Keyboard::Left))) {
         desiredVelX -= moveSpeed;
     }
-    if (input.isKeyHeld(sf::Keyboard::D) ||
-        input.isKeyHeld(sf::Keyboard::Right)) {
+    if (!runnerModeEnabled && (input.isKeyHeld(sf::Keyboard::D) ||
+        input.isKeyHeld(sf::Keyboard::Right))) {
         desiredVelX += moveSpeed;
     }
 
@@ -100,25 +106,15 @@ void Player::handleInput(const InputManager& input) {
                        input.isKeyPressed(sf::Keyboard::Up);
 
     if (jumpKeyDown) {
-        if (isOnGround()) {
-            // Check for double-click space bar for higher jump
-            float jumpImpulse = Constants::PLAYER_JUMP_IMPULSE;
-            if (input.isSpaceBarDoubleClicked()) {
-                // h = v^2/(2g). Add ~half-screen extra height over normal jump.
-                float normalJumpHeight =
-                    (Constants::PLAYER_JUMP_IMPULSE * Constants::PLAYER_JUMP_IMPULSE) /
-                    (2.0f * Constants::GRAVITY);
-                float extraHeight =
-                    physics->getWorldHeight() * Constants::PLAYER_DOUBLE_CLICK_EXTRA_SCREEN_HEIGHT;
-                float targetHeight = normalJumpHeight + extraHeight;
-                jumpImpulse = std::sqrt(2.0f * Constants::GRAVITY * targetHeight);
-            }
+        // Allow jump if on ground OR if vertical velocity is very low (coyote-time-like fallback)
+        b2Vec2 currentVel = body->GetLinearVelocity();
+        bool canJump = isOnGround() || (std::abs(currentVel.y) < 0.5f);
 
-            // Normal jump or double-click higher jump
-            float impulse = jumpImpulse * body->GetMass();
+        if (canJump) {
+            float impulse = Constants::PLAYER_JUMP_IMPULSE * body->GetMass();
             body->ApplyLinearImpulseToCenter(b2Vec2(0.0f, impulse), true);
         }
-        else if (isTouchingWall()) {
+        else if (!runnerModeEnabled && isTouchingWall()) {
             // Wall jump — push away from wall and upward
             float horizontalDir = (leftWallContactCount > 0) ? 1.0f : -1.0f;
             float mass = body->GetMass();
@@ -128,6 +124,19 @@ void Player::handleInput(const InputManager& input) {
             // Reset velocity before applying wall jump impulse
             body->SetLinearVelocity(b2Vec2(0.0f, 0.0f));
             body->ApplyLinearImpulseToCenter(b2Vec2(hImpulse, vImpulse), true);
+        }
+    }
+
+    // --- Duck / Fast-fall ---
+    bool duckKeyHeld = input.isKeyHeld(sf::Keyboard::S) ||
+                       input.isKeyHeld(sf::Keyboard::Down);
+    ducking = duckKeyHeld && isOnGround();
+
+    // Fast-fall when pressing down in the air
+    if (duckKeyHeld && !isOnGround()) {
+        b2Vec2 currentVel = body->GetLinearVelocity();
+        if (currentVel.y > -15.0f) {
+            body->ApplyLinearImpulseToCenter(b2Vec2(0.0f, -8.0f * body->GetMass()), true);
         }
     }
 }
@@ -142,6 +151,21 @@ void Player::render(sf::RenderWindow& window) {
     window.draw(sprite);
 }
 
+sf::FloatRect Player::getBoundsScreen() const {
+    sf::FloatRect bounds = sprite.getGlobalBounds();
+    // If ducking, shrink the hitbox height
+    if (ducking) {
+        float reduction = bounds.height * 0.45f;
+        bounds.top += reduction;
+        bounds.height -= reduction;
+    }
+    return bounds;
+}
+
+bool Player::isDucking() const {
+    return ducking;
+}
+
 void Player::updateAnimState() {
     b2Vec2 vel = body->GetLinearVelocity();
     AnimState newState = animState;
@@ -149,8 +173,10 @@ void Player::updateAnimState() {
     if (!isOnGround()) {
         // Box2D Y is up: positive = rising, negative = falling
         newState = (vel.y > 0.5f) ? AnimState::JUMP : AnimState::FALL;
+    } else if (ducking) {
+        newState = AnimState::DUCK;
     } else {
-        newState = (std::abs(vel.x) > 0.5f) ? AnimState::RUN : AnimState::IDLE;
+        newState = (runnerModeEnabled || std::abs(vel.x) > 0.5f) ? AnimState::RUN : AnimState::IDLE;
     }
 
     // Flip sprite based on horizontal movement direction
@@ -160,6 +186,10 @@ void Player::updateAnimState() {
     // Scale sprite so its height matches the physics body's pixel height
     float physPixelH = Constants::PLAYER_HEIGHT * Constants::PPM;
     float scaleY = physPixelH / static_cast<float>(frameSize.y);
+    // Squash vertically when ducking
+    if (ducking) {
+        scaleY *= 0.55f;
+    }
     float scaleX = facingRight ? scaleY : -scaleY;
     sprite.setScale(scaleX, scaleY);
 
@@ -171,6 +201,7 @@ void Player::updateAnimState() {
             case AnimState::RUN:  animator.play("run");           break;
             case AnimState::JUMP: animator.play("jump", false);   break;
             case AnimState::FALL: animator.play("fall");          break;
+            case AnimState::DUCK: animator.play("run");           break;  // Use run frames for duck
         }
     }
 }
