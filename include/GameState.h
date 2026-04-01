@@ -1,12 +1,35 @@
 #pragma once
 
 // Game states control which systems run during update/render.
-//
-// For Phase 2, the game starts directly in Play.
-// Menu and Pause will be wired up in Phase 7.
+// Expanded state machine to support full menu flow, shop, and achievements.
 
 enum class GameState {
-    Menu,
+    Menu,           // Main menu with title, play, settings, quit
+    Settings,       // Settings sub-menu (volume, controls)
+    Play,           // Active gameplay
+    Pause,          // Pause overlay with resume/settings/quit
+    GameOver,       // Death screen with stats and retry
+    Shop,           // Upgrade shop (spend coins)
+    Achievements,   // Achievement gallery
+    Transitioning   // Fade between states
+};
+
+// Sub-states for menu navigation
+enum class MenuSelection {
     Play,
-    Pause
+    Settings,
+    Shop,
+    Achievements,
+    Quit,
+    Resume,         // Pause menu
+    QuitToMenu,     // Pause/GameOver menu
+    Retry           // GameOver menu
+};
+
+// Settings sub-menu sections
+enum class SettingsSection {
+    Audio,
+    Display,
+    Controls,
+    Back
 };

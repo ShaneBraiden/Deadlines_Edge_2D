@@ -12,6 +12,10 @@ Player::Player(PhysicsWorld* physics, float startX, float startY, sf::Texture& s
     , sprinting(false)
     , runnerModeEnabled(false)
     , ducking(false)
+    , invulnerabilityTimer(0.0f)
+    , hitReactionTimer(0.0f)
+    , flashTimer(0.0f)
+    , flashVisible(true)
 {
     float halfW = Constants::PLAYER_WIDTH / 2.0f;
     float halfH = Constants::PLAYER_HEIGHT / 2.0f;
@@ -66,6 +70,9 @@ Player::Player(PhysicsWorld* physics, float startX, float startY, sf::Texture& s
     animator.addAnimation("run",  Animation(1, 8, frameSize, 0.08f));
     animator.addAnimation("jump", Animation(2, 3, frameSize, 0.12f));
     animator.addAnimation("fall", Animation(3, 3, frameSize, 0.10f));
+    // Hit and stumble reuse existing frames for now
+    animator.addAnimation("hit",  Animation(3, 2, frameSize, 0.15f));
+    animator.addAnimation("stumble", Animation(1, 4, frameSize, 0.10f));
     animator.play("idle");
 }
 
@@ -142,12 +149,49 @@ void Player::handleInput(const InputManager& input) {
 }
 
 void Player::update(float dt) {
+    // Update invulnerability
+    if (invulnerabilityTimer > 0.0f) {
+        invulnerabilityTimer -= dt;
+
+        // Flash effect
+        flashTimer += dt;
+        if (flashTimer >= 0.08f) {
+            flashTimer = 0.0f;
+            flashVisible = !flashVisible;
+        }
+    } else {
+        flashVisible = true;
+    }
+
+    // Update hit reaction
+    if (hitReactionTimer > 0.0f) {
+        hitReactionTimer -= dt;
+        if (hitReactionTimer <= 0.0f && animState == AnimState::HIT) {
+            animState = AnimState::STUMBLE;
+            animator.play("stumble", false);
+        }
+    }
+
     updateAnimState();
     animator.update(dt, sprite);
     syncSpriteToBody();
 }
 
 void Player::render(sf::RenderWindow& window) {
+    // Don't render if flashing and invisible
+    if (!flashVisible && invulnerabilityTimer > 0.0f) {
+        return;
+    }
+
+    // Tint red if hit reacting
+    if (hitReactionTimer > 0.0f) {
+        sprite.setColor(sf::Color(255, 150, 150));
+    } else if (invulnerabilityTimer > 0.0f) {
+        sprite.setColor(sf::Color(255, 255, 255, 180));
+    } else {
+        sprite.setColor(sf::Color::White);
+    }
+
     window.draw(sprite);
 }
 
@@ -167,6 +211,14 @@ bool Player::isDucking() const {
 }
 
 void Player::updateAnimState() {
+    // Skip animation updates during hit reaction
+    if (animState == AnimState::HIT) {
+        return;
+    }
+    if (animState == AnimState::STUMBLE && !animator.isFinished()) {
+        return;
+    }
+
     b2Vec2 vel = body->GetLinearVelocity();
     AnimState newState = animState;
 
@@ -197,11 +249,13 @@ void Player::updateAnimState() {
     if (newState != animState) {
         animState = newState;
         switch (animState) {
-            case AnimState::IDLE: animator.play("idle");          break;
-            case AnimState::RUN:  animator.play("run");           break;
-            case AnimState::JUMP: animator.play("jump", false);   break;
-            case AnimState::FALL: animator.play("fall");          break;
-            case AnimState::DUCK: animator.play("run");           break;  // Use run frames for duck
+            case AnimState::IDLE:    animator.play("idle");          break;
+            case AnimState::RUN:     animator.play("run");           break;
+            case AnimState::JUMP:    animator.play("jump", false);   break;
+            case AnimState::FALL:    animator.play("fall");          break;
+            case AnimState::DUCK:    animator.play("run");           break;  // Use run frames for duck
+            case AnimState::HIT:     animator.play("hit", false);    break;
+            case AnimState::STUMBLE: animator.play("stumble", false); break;
         }
     }
 }
@@ -236,4 +290,30 @@ bool Player::isOnGround() const {
 
 bool Player::isTouchingWall() const {
     return leftWallContactCount > 0 || rightWallContactCount > 0;
+}
+
+void Player::hit() {
+    if (invulnerabilityTimer > 0.0f) return;  // Already invulnerable
+
+    animState = AnimState::HIT;
+    animator.play("hit", false);
+    hitReactionTimer = 0.3f;
+    invulnerabilityTimer = Constants::PLAYER_INVULNERABILITY_TIME;
+    flashTimer = 0.0f;
+    flashVisible = true;
+
+    // Small knockback
+    b2Vec2 vel = body->GetLinearVelocity();
+    vel.y = 5.0f;  // Small upward bounce
+    body->SetLinearVelocity(vel);
+}
+
+void Player::setInvulnerable(float duration) {
+    invulnerabilityTimer = duration;
+    flashTimer = 0.0f;
+}
+
+sf::Vector2f Player::getScreenPosition() const {
+    b2Vec2 bodyPos = body->GetPosition();
+    return physics->toScreen(bodyPos);
 }

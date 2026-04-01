@@ -12,6 +12,14 @@
 #include "ParticleSystem.h"
 #include "ParallaxBackground.h"
 #include "LightingSystem.h"
+#include "MenuSystem.h"
+#include "HUD.h"
+#include "ComboSystem.h"
+#include "PowerUpManager.h"
+#include "CoinManager.h"
+#include "ScreenEffects.h"
+#include "SaveSystem.h"
+#include "AchievementSystem.h"
 
 // Core game class — owns the window, physics world, player, and all entities.
 // Runs the main loop with a fixed-timestep accumulator pattern.
@@ -36,7 +44,8 @@ private:
     void resetRun();
     void spawnObstacle();
     void updateObstacles(float dt);
-    bool checkObstacleCollision() const;
+    bool checkObstacleCollision();
+    bool checkNearMiss() const;
 
     void processEvents();
     void update(float dt);
@@ -48,10 +57,29 @@ private:
     void renderGameOver();
     void renderVignette();
 
+    // New systems updates
+    void updatePowerUps(float dt);
+    void updateCoins(float dt);
+    void updateCombo(float dt);
+    void checkAchievements();
+    void handleGameOver();
+
+    // Obstacle types
+    enum class ObstacleType {
+        Chair,
+        Bench,
+        Book,
+        Professor,  // New: slow-moving, must jump
+        ExamStack,  // New: tall stack, must duck
+        CoffeeCart  // New: wide, must jump high
+    };
+
     struct RunnerObstacle {
         sf::Sprite sprite;
         float speed;
         bool passed;
+        ObstacleType type;
+        float animTimer;  // For animated obstacles
     };
 
     sf::RenderWindow window;
@@ -66,15 +94,28 @@ private:
     Player* player;
     b2Body* groundBody;
 
-    // Systems
+    // Core systems
     InputManager inputManager;
     GameState currentState;
+    GameState previousState;  // For transitions
     AssetManager* assets;               // Lab: single-level pointer, template get<T>()
     ParticleSystem* particleSystem;     // Lab: single-level pointer
     ParallaxBackground* parallaxBg;     // Lab: single-level pointer
     LightingSystem* lightingSystem;     // Lab: single-level pointer
 
-    // Runner systems
+    // New UI systems
+    MenuSystem* menuSystem;
+    HUD* hud;
+    ScreenEffects* screenEffects;
+
+    // New gameplay systems
+    ComboSystem* comboSystem;
+    PowerUpManager* powerUpManager;
+    CoinManager* coinManager;
+    SaveSystem* saveSystem;
+    AchievementSystem* achievementSystem;
+
+    // Runner state
     std::vector<RunnerObstacle> obstacles;
     float obstacleSpawnTimer;
     float nextObstacleSpawnDelay;
@@ -86,6 +127,12 @@ private:
 
     float laneX;
     float groundY;
+
+    // Run statistics
+    float runTime;
+    int obstaclesDodged;
+    int coinsThisRun;
+    float distanceTraveled;
 
     // Vignette overlay
     sf::RectangleShape vignetteTop;

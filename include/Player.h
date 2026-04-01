@@ -11,7 +11,9 @@ enum class AnimState {
     RUN,
     JUMP,
     FALL,
-    DUCK
+    DUCK,
+    HIT,        // New: hit reaction
+    STUMBLE     // New: recovery from hit
 };
 
 // Ethan Calloway — the player character.
@@ -54,6 +56,15 @@ public:
     bool isOnGround() const;
     bool isTouchingWall() const;
 
+    // New: Hit and invulnerability
+    void hit();
+    bool isInvulnerable() const { return invulnerabilityTimer > 0.0f; }
+    bool isHitReacting() const { return animState == AnimState::HIT || animState == AnimState::STUMBLE; }
+    void setInvulnerable(float duration);
+
+    // Position helpers
+    sf::Vector2f getScreenPosition() const;
+
 private:
     void updateAnimState();
     void syncSpriteToBody();
@@ -70,4 +81,10 @@ private:
     bool sprinting;                    // Currently sprinting
     bool runnerModeEnabled;            // Endless-runner movement mode
     bool ducking;                      // Down key held (fast-fall or duck)
+
+    // Hit reaction state
+    float invulnerabilityTimer;
+    float hitReactionTimer;
+    float flashTimer;
+    bool flashVisible;
 };

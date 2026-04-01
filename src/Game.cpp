@@ -23,7 +23,16 @@ Game::Game()
     , particleSystem(nullptr)
     , parallaxBg(nullptr)
     , lightingSystem(nullptr)
+    , menuSystem(nullptr)
+    , hud(nullptr)
+    , screenEffects(nullptr)
+    , comboSystem(nullptr)
+    , powerUpManager(nullptr)
+    , coinManager(nullptr)
+    , saveSystem(nullptr)
+    , achievementSystem(nullptr)
     , currentState(GameState::Menu)
+    , previousState(GameState::Menu)
     , assets(nullptr)
     , obstacleSpawnTimer(0.0f)
     , nextObstacleSpawnDelay(1.2f)
@@ -34,15 +43,21 @@ Game::Game()
     , rng(static_cast<unsigned int>(std::time(nullptr)))
     , laneX(0.0f)
     , groundY(0.0f)
+    , runTime(0.0f)
+    , obstaclesDodged(0)
+    , coinsThisRun(0)
+    , distanceTraveled(0.0f)
 {
     window.setFramerateLimit(60);
 
     float winW = static_cast<float>(window.getSize().x);
     float winH = static_cast<float>(window.getSize().y);
 
+    // Initialize save system first
+    saveSystem = new SaveSystem();
+    bestScore = saveSystem->getData().bestScore;
+
     // Lab: single-level pointer + exception handling
-    // AssetManager::loadAll() throws AssetLoadException on failure,
-    // which propagates to main.cpp's try/catch
     assets = new AssetManager();
     assets->loadAll();
 
@@ -61,6 +76,19 @@ Game::Game()
     );
     lightingSystem->setAmbientLevel(190);
 
+    // Initialize new UI systems
+    menuSystem = new MenuSystem(window, assets);
+    hud = new HUD(window, assets);
+    screenEffects = new ScreenEffects(window);
+
+    // Initialize gameplay systems
+    groundY = winH - 160.0f;
+    comboSystem = new ComboSystem();
+    powerUpManager = new PowerUpManager(winW, groundY);
+    coinManager = new CoinManager(winW, groundY);
+    achievementSystem = new AchievementSystem(saveSystem);
+
+    // Setup vignette
     float vigSize = 130.0f;
     vignetteTop.setSize(sf::Vector2f(winW, vigSize));
     vignetteTop.setPosition(0.0f, 0.0f);
@@ -80,10 +108,39 @@ Game::Game()
 }
 
 Game::~Game() {
+    // Save progress before cleanup
+    if (saveSystem) {
+        saveSystem->save();
+    }
+
     for (auto* entity : entities) {
         delete entity;
     }
     entities.clear();
+
+    delete achievementSystem;
+    achievementSystem = nullptr;
+
+    delete saveSystem;
+    saveSystem = nullptr;
+
+    delete coinManager;
+    coinManager = nullptr;
+
+    delete powerUpManager;
+    powerUpManager = nullptr;
+
+    delete comboSystem;
+    comboSystem = nullptr;
+
+    delete screenEffects;
+    screenEffects = nullptr;
+
+    delete hud;
+    hud = nullptr;
+
+    delete menuSystem;
+    menuSystem = nullptr;
 
     delete lightingSystem;
     lightingSystem = nullptr;
@@ -125,7 +182,7 @@ void Game::resetRun() {
     groundY = winH - 160.0f;  // Higher ground line for bigger player
 
     // Create a thick ground body so foot sensor reliably touches it
-    const float groundHalfHeightMeters = 1.0f;  // 1 meter thick (50 pixels)
+    const float groundHalfHeightMeters = 1.0f;
     float groundTopScreenY = groundY;
     float groundCenterScreenY = groundTopScreenY + groundHalfHeightMeters * Constants::PPM;
     b2Vec2 groundWorldPos = physics->toWorld(sf::Vector2f(winW * 0.5f, groundCenterScreenY));
@@ -137,20 +194,44 @@ void Game::resetRun() {
     );
 
     // Lab: arrow operator + template method call
-    // Position player so their feet are slightly above ground, then let them drop
     sf::Texture& playerTex = assets->get<sf::Texture>(AssetKeys::PLAYER_SHEET);
     float playerHalfHeightPixels = Constants::PLAYER_HEIGHT * Constants::PPM * 0.5f;
-    float playerCenterScreenY = groundY - playerHalfHeightPixels - 5.0f;  // 5 pixels above ground
+    float playerCenterScreenY = groundY - playerHalfHeightPixels - 5.0f;
     b2Vec2 playerSpawn = physics->toWorld(sf::Vector2f(laneX, playerCenterScreenY));
     player = new Player(physics, playerSpawn.x, playerSpawn.y, playerTex);
     player->setRunnerMode(true);
+
+    // Apply shield start upgrade if purchased
+    if (saveSystem && saveSystem->getData().shieldStartUpgrade) {
+        powerUpManager->activatePowerUp(PowerUpType::Shield);
+    }
+
     entities.push_back(player);
 
+    // Reset runner state
     obstacleSpawnTimer = 0.0f;
     nextObstacleSpawnDelay = 1.1f;
     obstacleBaseSpeed = 430.0f;
     score = 0.0f;
     gameOver = false;
+
+    // Reset run statistics
+    runTime = 0.0f;
+    obstaclesDodged = 0;
+    coinsThisRun = 0;
+    distanceTraveled = 0.0f;
+
+    // Reset systems
+    comboSystem->reset();
+    powerUpManager->reset();
+    coinManager->reset();
+    screenEffects->reset();
+    hud->clearPowerUps();
+
+    // Increment run count
+    if (saveSystem) {
+        saveSystem->incrementRuns();
+    }
 }
 
 void Game::spawnObstacle() {
@@ -160,24 +241,40 @@ void Game::spawnObstacle() {
     RunnerObstacle obstacle;
     obstacle.speed = obstacleBaseSpeed + randomRange(rng, -25.0f, 90.0f);
     obstacle.passed = false;
+    obstacle.animTimer = 0.0f;
 
     float spawnX = static_cast<float>(window.getSize().x) + randomRange(rng, 60.0f, 260.0f);
     float spawnY = groundY;
 
     // Lab: arrow operator + template method call
-    if (roll < 45) {
+    if (roll < 35) {
         obstacle.sprite.setTexture(assets->get<sf::Texture>(AssetKeys::OBSTACLE_CHAIR));
-        obstacle.sprite.setScale(4.5f, 4.5f);  // Bigger obstacles for bigger player
+        obstacle.sprite.setScale(4.5f, 4.5f);
+        obstacle.type = ObstacleType::Chair;
     }
-    else if (roll < 80) {
+    else if (roll < 60) {
         obstacle.sprite.setTexture(assets->get<sf::Texture>(AssetKeys::OBSTACLE_BENCH));
         obstacle.sprite.setScale(3.2f, 3.2f);
+        obstacle.type = ObstacleType::Bench;
+    }
+    else if (roll < 80) {
+        obstacle.sprite.setTexture(assets->get<sf::Texture>(AssetKeys::OBSTACLE_BOOK));
+        obstacle.sprite.setScale(2.0f, 2.0f);
+        spawnY = groundY - 100.0f;  // Flying book at head height
+        obstacle.type = ObstacleType::Book;
+    }
+    else if (roll < 90) {
+        // Professor obstacle - tall, slow
+        obstacle.sprite.setTexture(assets->get<sf::Texture>(AssetKeys::OBSTACLE_CHAIR));  // Reuse for now
+        obstacle.sprite.setScale(5.0f, 6.0f);
+        obstacle.speed *= 0.7f;  // Professors walk slow
+        obstacle.type = ObstacleType::Professor;
     }
     else {
-        obstacle.sprite.setTexture(assets->get<sf::Texture>(AssetKeys::OBSTACLE_BOOK));
-        obstacle.sprite.setScale(2.0f, 2.0f);  // Smaller flying book
-        // Flying book at head height — duck to avoid, don't jump
-        spawnY = groundY - 100.0f;
+        // Coffee cart - wide
+        obstacle.sprite.setTexture(assets->get<sf::Texture>(AssetKeys::OBSTACLE_BENCH));  // Reuse for now
+        obstacle.sprite.setScale(5.0f, 4.0f);
+        obstacle.type = ObstacleType::CoffeeCart;
     }
 
     sf::FloatRect local = obstacle.sprite.getLocalBounds();
@@ -187,11 +284,39 @@ void Game::spawnObstacle() {
 }
 
 void Game::updateObstacles(float dt) {
+    float timeScale = powerUpManager->getSlowMoFactor();
+
     for (auto& obstacle : obstacles) {
-        obstacle.sprite.move(-obstacle.speed * dt, 0.0f);
+        // Apply slow-mo to obstacle movement
+        obstacle.sprite.move(-obstacle.speed * dt * timeScale, 0.0f);
+
+        // Update animation timer for animated obstacles
+        obstacle.animTimer += dt;
+
+        // Bobbing animation for flying books
+        if (obstacle.type == ObstacleType::Book) {
+            float bob = std::sin(obstacle.animTimer * 4.0f) * 8.0f;
+            sf::Vector2f pos = obstacle.sprite.getPosition();
+            obstacle.sprite.setPosition(pos.x, groundY - 100.0f + bob);
+        }
+
+        // Check if passed player lane
         if (!obstacle.passed && obstacle.sprite.getPosition().x < laneX) {
             obstacle.passed = true;
-            score += 20.0f;
+            obstaclesDodged++;
+
+            // Calculate score bonus
+            int baseBonus = 20;
+            float scoreMultiplier = powerUpManager->getScoreMultiplier();
+            int finalBonus = comboSystem->calculateBonus(static_cast<int>(baseBonus * scoreMultiplier));
+            score += finalBonus;
+
+            // Register dodge with combo system
+            comboSystem->registerDodge();
+
+            // Show score popup
+            hud->triggerScorePopup("+" + std::to_string(finalBonus), 
+                sf::Vector2f(laneX + 50.0f, groundY - 100.0f));
         }
     }
 
@@ -204,8 +329,8 @@ void Game::updateObstacles(float dt) {
     );
 }
 
-bool Game::checkObstacleCollision() const {
-    if (!player) {
+bool Game::checkObstacleCollision() {
+    if (!player || player->isInvulnerable()) {
         return false;
     }
 
@@ -223,6 +348,36 @@ bool Game::checkObstacleCollision() const {
         obstacleBounds.height *= 0.82f;
 
         if (playerBounds.intersects(obstacleBounds)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool Game::checkNearMiss() const {
+    if (!player) return false;
+
+    sf::FloatRect playerBounds = player->getBoundsScreen();
+    // Expand bounds for near-miss detection
+    playerBounds.left -= Constants::NEAR_MISS_THRESHOLD;
+    playerBounds.top -= Constants::NEAR_MISS_THRESHOLD;
+    playerBounds.width += Constants::NEAR_MISS_THRESHOLD * 2;
+    playerBounds.height += Constants::NEAR_MISS_THRESHOLD * 2;
+
+    sf::FloatRect tightPlayerBounds = player->getBoundsScreen();
+    tightPlayerBounds.left += tightPlayerBounds.width * 0.28f;
+    tightPlayerBounds.top += tightPlayerBounds.height * 0.14f;
+    tightPlayerBounds.width *= 0.46f;
+    tightPlayerBounds.height *= 0.80f;
+
+    for (const auto& obstacle : obstacles) {
+        if (obstacle.passed) continue;
+
+        sf::FloatRect obstacleBounds = obstacle.sprite.getGlobalBounds();
+
+        // Check if in near-miss zone but not colliding
+        if (playerBounds.intersects(obstacleBounds) && !tightPlayerBounds.intersects(obstacleBounds)) {
             return true;
         }
     }
@@ -266,44 +421,120 @@ void Game::processEvents() {
             continue;
         }
 
-        if (currentState == GameState::Menu && event.key.code == sf::Keyboard::Enter) {
-            startGameFromMenu();
+        // Menu system handles navigation for menu states
+        if (currentState == GameState::Menu || currentState == GameState::Settings ||
+            currentState == GameState::Shop || currentState == GameState::Achievements) {
+
+            if (event.key.code == sf::Keyboard::Up || event.key.code == sf::Keyboard::W) {
+                menuSystem->navigateUp();
+            }
+            else if (event.key.code == sf::Keyboard::Down || event.key.code == sf::Keyboard::S) {
+                menuSystem->navigateDown();
+            }
+            else if (event.key.code == sf::Keyboard::Left || event.key.code == sf::Keyboard::A) {
+                menuSystem->navigateLeft();
+            }
+            else if (event.key.code == sf::Keyboard::Right || event.key.code == sf::Keyboard::D) {
+                menuSystem->navigateRight();
+            }
+            else if (event.key.code == sf::Keyboard::Enter || event.key.code == sf::Keyboard::Space) {
+                menuSystem->select(currentState, saveSystem);
+            }
+            else if (event.key.code == sf::Keyboard::Escape) {
+                menuSystem->back(currentState);
+                if (currentState == GameState::Menu) {
+                    // If escape pressed in main menu, close window
+                    // (back() returns to menu, so check if we're still at menu root)
+                }
+            }
             continue;
         }
 
-        if (event.key.code == sf::Keyboard::Escape) {
-            if (currentState == GameState::Play) {
-                currentState = GameState::Pause;
+        // Pause menu navigation
+        if (currentState == GameState::Pause) {
+            if (event.key.code == sf::Keyboard::Up || event.key.code == sf::Keyboard::W) {
+                menuSystem->navigateUp();
             }
-            else if (currentState == GameState::Pause) {
+            else if (event.key.code == sf::Keyboard::Down || event.key.code == sf::Keyboard::S) {
+                menuSystem->navigateDown();
+            }
+            else if (event.key.code == sf::Keyboard::Enter || event.key.code == sf::Keyboard::Space) {
+                MenuSelection selection = menuSystem->getPauseSelection();
+                if (selection == MenuSelection::Resume) {
+                    currentState = GameState::Play;
+                }
+                else if (selection == MenuSelection::Settings) {
+                    currentState = GameState::Settings;
+                }
+                else if (selection == MenuSelection::QuitToMenu) {
+                    currentState = GameState::Menu;
+                    menuSystem->resetMenuState();
+                }
+            }
+            else if (event.key.code == sf::Keyboard::Escape || event.key.code == sf::Keyboard::P) {
                 currentState = GameState::Play;
             }
-            else {
-                window.close();
-            }
+            continue;
         }
 
-        if (currentState == GameState::Play && gameOver && event.key.code == sf::Keyboard::Enter) {
-            resetRun();
+        // In-game controls
+        if (currentState == GameState::Play) {
+            if (event.key.code == sf::Keyboard::Escape) {
+                currentState = GameState::Pause;
+                menuSystem->resetPauseSelection();
+            }
+
+            // Game over - handle restart/quit
+            if (gameOver) {
+                if (event.key.code == sf::Keyboard::Enter || event.key.code == sf::Keyboard::Space) {
+                    MenuSelection selection = menuSystem->getGameOverSelection();
+                    if (selection == MenuSelection::Retry) {
+                        resetRun();
+                    }
+                    else if (selection == MenuSelection::QuitToMenu) {
+                        currentState = GameState::Menu;
+                        menuSystem->resetMenuState();
+                    }
+                }
+                else if (event.key.code == sf::Keyboard::Up || event.key.code == sf::Keyboard::W) {
+                    menuSystem->navigateUp();
+                }
+                else if (event.key.code == sf::Keyboard::Down || event.key.code == sf::Keyboard::S) {
+                    menuSystem->navigateDown();
+                }
+            }
         }
     }
 }
 
 void Game::update(float dt) {
-    if (currentState == GameState::Menu) {
-        if (inputManager.isKeyPressed(sf::Keyboard::Enter)) {
-            startGameFromMenu();
-        }
+    // Update screen effects regardless of state
+    screenEffects->update(dt);
+
+    // Check for state transitions FIRST (before processing current state)
+    if (currentState == GameState::Play && previousState != GameState::Play && !gameOver) {
+        // Transitioning TO Play state - start the game
+        startGameFromMenu();
+    }
+    previousState = currentState;
+
+    // Handle menu states
+    if (currentState == GameState::Menu || currentState == GameState::Settings ||
+        currentState == GameState::Shop || currentState == GameState::Achievements) {
+        menuSystem->handleInput(inputManager, currentState);
+        menuSystem->update(dt);
         particleSystem->update(dt);
         return;
     }
 
     if (currentState == GameState::Pause) {
-        if (inputManager.isKeyPressed(sf::Keyboard::P)) {
+        // Handle pause menu input
+        if (inputManager.isKeyPressed(sf::Keyboard::P) || inputManager.isKeyPressed(sf::Keyboard::Escape)) {
             currentState = GameState::Play;
         }
         if (inputManager.isKeyPressed(sf::Keyboard::Q)) {
             currentState = GameState::Menu;
+            menuSystem->resetMenuState();
         }
         return;
     }
@@ -316,18 +547,34 @@ void Game::update(float dt) {
         if (inputManager.isKeyPressed(sf::Keyboard::Enter)) {
             resetRun();
         }
+        if (inputManager.isKeyPressed(sf::Keyboard::Escape)) {
+            currentState = GameState::Menu;
+            menuSystem->resetMenuState();
+        }
         particleSystem->update(dt);
         return;
     }
 
+    // Get time scale from power-ups
+    float timeScale = powerUpManager->getSlowMoFactor();
+    float scaledDt = dt * timeScale;
+
+    // Update run time and distance
+    runTime += dt;
+    distanceTraveled += obstacleBaseSpeed * dt * 0.1f;
+
+    // Handle player input
     player->handleInput(inputManager);
 
+    // Update all entities
     for (auto* entity : entities) {
-        entity->update(dt);
+        entity->update(scaledDt);
     }
 
+    // Step physics
     physics->step();
 
+    // Clamp player to lane
     b2Body* playerBody = player->getBody();
     b2Vec2 velocity = playerBody->GetLinearVelocity();
     velocity.x = 0.0f;
@@ -337,6 +584,7 @@ void Game::update(float dt) {
     float laneXWorld = physics->toWorld(sf::Vector2f(laneX, 0.0f)).x;
     playerBody->SetTransform(b2Vec2(laneXWorld, playerPos.y), 0.0f);
 
+    // Obstacle spawning
     obstacleSpawnTimer += dt;
     if (obstacleSpawnTimer >= nextObstacleSpawnDelay) {
         spawnObstacle();
@@ -345,28 +593,186 @@ void Game::update(float dt) {
         nextObstacleSpawnDelay = randomRange(rng, 0.7f, 1.5f) * spawnScale;
     }
 
-    updateObstacles(dt);
+    // Update obstacles
+    updateObstacles(scaledDt);
 
-    score += dt * 14.0f;
-    obstacleBaseSpeed = std::min(obstacleBaseSpeed + dt * 8.0f, 830.0f);
+    // Update power-ups and coins
+    powerUpManager->update(dt, obstacleBaseSpeed, rng);
+    coinManager->update(dt, obstacleBaseSpeed, rng);
+
+    // Check power-up collection
+    if (player) {
+        sf::FloatRect playerBounds = player->getBoundsScreen();
+        if (powerUpManager->checkCollection(playerBounds)) {
+            // Update HUD with active power-ups
+            for (const auto& effect : powerUpManager->getActiveEffects()) {
+                std::string name;
+                sf::Color color;
+                switch (effect.type) {
+                    case PowerUpType::Shield:
+                        name = "Shield"; color = sf::Color(100, 180, 255); break;
+                    case PowerUpType::SlowMotion:
+                        name = "SlowMo"; color = sf::Color(180, 100, 255); break;
+                    case PowerUpType::DoubleScore:
+                        name = "Double"; color = sf::Color(255, 215, 0); break;
+                    case PowerUpType::Magnet:
+                        name = "Magnet"; color = sf::Color(255, 100, 150); break;
+                    default: name = "Power"; color = sf::Color::White;
+                }
+                hud->addPowerUp(name, color, effect.maxTime);
+            }
+            hud->showToast("Power-Up!", Constants::UI_ACCENT);
+        }
+
+        // Check coin collection
+        bool hasMagnet = powerUpManager->hasMagnet();
+        int coinsCollected = coinManager->checkCollection(playerBounds, hasMagnet, player->getScreenPosition());
+        if (coinsCollected > 0) {
+            coinsThisRun += coinsCollected;
+            if (saveSystem) {
+                saveSystem->addCoins(coinsCollected);
+            }
+            hud->triggerScorePopup("+" + std::to_string(coinsCollected) + " coin", player->getScreenPosition());
+        }
+    }
+
+    // Check for near-miss bonus
+    if (checkNearMiss()) {
+        comboSystem->registerNearMiss();
+        score += Constants::NEAR_MISS_BONUS * powerUpManager->getScoreMultiplier();
+        hud->triggerScorePopup("NEAR MISS!", sf::Vector2f(laneX + 80.0f, groundY - 150.0f));
+        hud->showToast("Close call!", Constants::UI_SECONDARY);
+    }
+
+    // Update score
+    float scoreMultiplier = powerUpManager->getScoreMultiplier();
+    score += dt * 14.0f * scoreMultiplier;
+
+    // Update combo system
+    comboSystem->update(dt);
+
+    // Check combo milestones
+    if (comboSystem->hasNewMilestone()) {
+        hud->showMilestoneToast(std::to_string(comboSystem->getMilestoneValue()) + "x COMBO!");
+        hud->triggerComboFlash();
+        comboSystem->clearMilestoneFlag();
+    }
+
+    // Update difficulty
+    obstacleBaseSpeed = std::min(obstacleBaseSpeed + dt * Constants::DIFFICULTY_RAMP_RATE, Constants::MAX_OBSTACLE_SPEED);
+
+    // Update visual systems
     particleSystem->update(dt);
 
+    // Update HUD
+    hud->setScore(score);
+    hud->setBestScore(bestScore);
+    hud->setCoins(coinsThisRun);
+    hud->setCombo(comboSystem->getComboCount(), comboSystem->getMultiplier());
+    hud->setSpeed(obstacleBaseSpeed, Constants::MAX_OBSTACLE_SPEED);
+    hud->setDistance(distanceTraveled);
+    hud->update(dt);
+
+    // Update power-up display in HUD
+    for (const auto& effect : powerUpManager->getActiveEffects()) {
+        std::string name;
+        switch (effect.type) {
+            case PowerUpType::Shield: name = "Shield"; break;
+            case PowerUpType::SlowMotion: name = "SlowMo"; break;
+            case PowerUpType::DoubleScore: name = "Double"; break;
+            case PowerUpType::Magnet: name = "Magnet"; break;
+            default: name = "Power";
+        }
+        hud->updatePowerUp(name, effect.remainingTime);
+    }
+
+    // Check collision
     if (checkObstacleCollision()) {
-        gameOver = true;
-        bestScore = std::max(bestScore, score);
+        if (powerUpManager->hasShield()) {
+            // Shield absorbs hit
+            powerUpManager->consumeShield();
+            hud->removePowerUp("Shield");
+            screenEffects->triggerShake(8.0f);
+            screenEffects->triggerFlash(sf::Color(100, 180, 255, 100), 0.15f);
+            hud->showToast("Shield broken!", sf::Color(100, 180, 255));
+            player->setInvulnerable(0.5f);
+        } else {
+            handleGameOver();
+        }
+    }
+
+    // Check achievements
+    checkAchievements();
+
+    previousState = currentState;
+}
+
+void Game::handleGameOver() {
+    gameOver = true;
+
+    // Update best score
+    if (score > bestScore) {
+        bestScore = score;
+        hud->showAchievementToast("New Best Score!");
+    }
+
+    // Save progress
+    if (saveSystem) {
+        saveSystem->updateBestScore(score);
+        saveSystem->addPlayTime(runTime);
+        saveSystem->addObstaclesDodged(obstaclesDodged);
+        saveSystem->updateHighestCombo(comboSystem->getComboCount());
+        saveSystem->save();
+    }
+
+    // Trigger effects
+    screenEffects->triggerShake(Constants::SCREEN_SHAKE_INTENSITY);
+    screenEffects->triggerFlash(sf::Color(255, 50, 50, 150), 0.2f);
+    hud->triggerDamageFlash();
+    comboSystem->breakCombo();
+
+    // Check end-of-run achievements
+    if (achievementSystem) {
+        achievementSystem->onRunComplete(score, coinsThisRun, obstaclesDodged, comboSystem->getComboCount());
+    }
+}
+
+void Game::checkAchievements() {
+    if (!achievementSystem || !saveSystem) return;
+
+    // Check current state achievements
+    achievementSystem->checkAchievements(
+        score,
+        comboSystem->getComboCount(),
+        saveSystem->getData().totalCoins,
+        saveSystem->getData().totalRuns
+    );
+
+    // Process newly unlocked achievements
+    auto newAchievements = achievementSystem->popNewlyUnlocked();
+    for (const auto& ach : newAchievements) {
+        hud->showAchievementToast(ach.name);
     }
 }
 
 void Game::render() {
+    // Apply screen effects
+    sf::View effectView = window.getDefaultView();
+    screenEffects->applyToView(effectView);
+
     window.clear(sf::Color(8, 10, 15));
-    window.setView(window.getDefaultView());
+    window.setView(effectView);
 
     if (parallaxBg) {
-        parallaxBg->render(window, window.getView());
+        parallaxBg->render(window, effectView);
     }
 
-    if (currentState == GameState::Menu) {
-        renderMenu();
+    // Render menu states
+    if (currentState == GameState::Menu || currentState == GameState::Settings ||
+        currentState == GameState::Shop || currentState == GameState::Achievements) {
+        sf::Font& font = assets->get<sf::Font>(AssetKeys::MAIN_FONT);
+        menuSystem->render(window, font, currentState, saveSystem);
+        screenEffects->renderOverlays(window);
         window.display();
         return;
     }
@@ -374,12 +780,14 @@ void Game::render() {
     float winW = static_cast<float>(window.getSize().x);
     float winH = static_cast<float>(window.getSize().y);
 
+    // Ground band
     sf::RectangleShape groundBand;
     groundBand.setSize(sf::Vector2f(winW, winH - groundY));
     groundBand.setPosition(0.0f, groundY);
     groundBand.setFillColor(sf::Color(18, 22, 32, 220));
     window.draw(groundBand);
 
+    // Track line
     sf::VertexArray trackLine(sf::Lines, 2);
     trackLine[0].position = sf::Vector2f(0.0f, groundY);
     trackLine[0].color = sf::Color(130, 145, 168);
@@ -398,10 +806,18 @@ void Game::render() {
         window.draw(playerShadow);
     }
 
+    // Draw entities (player)
     for (auto* entity : entities) {
         entity->render(window);
     }
 
+    // Draw coins
+    coinManager->render(window);
+
+    // Draw power-ups
+    powerUpManager->render(window);
+
+    // Draw obstacles with shadows
     for (const auto& obstacle : obstacles) {
         // Draw shadow under obstacle
         sf::FloatRect bounds = obstacle.sprite.getGlobalBounds();
@@ -415,14 +831,18 @@ void Game::render() {
         window.draw(obstacle.sprite);
     }
 
+    // Particles
     if (particleSystem) {
         particleSystem->render(window);
     }
 
+    // Lighting
     if (lightingSystem && player) {
         lightingSystem->clearLights();
         b2Vec2 bodyPos = player->getBody()->GetPosition();
         sf::Vector2f screenPos = physics->toScreen(bodyPos);
+
+        // Main player light
         lightingSystem->addLight(
             screenPos,
             260.0f,
@@ -430,44 +850,46 @@ void Game::render() {
             0.55f,
             0.18f
         );
+
+        // Add glowing lights for power-ups
+        for (const auto& effect : powerUpManager->getActiveEffects()) {
+            sf::Color color;
+            switch (effect.type) {
+                case PowerUpType::Shield: color = sf::Color(100, 180, 255); break;
+                case PowerUpType::SlowMotion: color = sf::Color(180, 100, 255); break;
+                case PowerUpType::DoubleScore: color = sf::Color(255, 215, 0); break;
+                case PowerUpType::Magnet: color = sf::Color(255, 100, 150); break;
+                default: color = sf::Color::White;
+            }
+            lightingSystem->addLight(screenPos, 180.0f, color, 0.3f, 0.1f);
+        }
+
         lightingSystem->render(window, Constants::TIME_STEP);
     }
 
+    // Vignette
     renderVignette();
 
-    // Lab: arrow operator + template method call
+    // Screen effects overlays
+    screenEffects->renderOverlays(window);
+
+    // Draw HUD (always on top)
     sf::Font& font = assets->get<sf::Font>(AssetKeys::MAIN_FONT);
-
-    sf::Text scoreText;
-    scoreText.setFont(font);
-    scoreText.setCharacterSize(30);
-    scoreText.setFillColor(sf::Color(230, 235, 245));
-    scoreText.setString("Score  " + std::to_string(static_cast<int>(score)));
-    scoreText.setPosition(28.0f, 26.0f);
-    window.draw(scoreText);
-
-    sf::Text bestText;
-    bestText.setFont(font);
-    bestText.setCharacterSize(16);
-    bestText.setFillColor(sf::Color(160, 172, 195));
-    bestText.setString("Best  " + std::to_string(static_cast<int>(bestScore)));
-    bestText.setPosition(32.0f, 66.0f);
-    window.draw(bestText);
-
-    sf::Text hintText;
-    hintText.setFont(font);
-    hintText.setCharacterSize(14);
-    hintText.setFillColor(sf::Color(150, 160, 178, 190));
-    hintText.setString("SPACE / W / UP to jump  |  S / DOWN to duck");
-    hintText.setPosition(30.0f, winH - 42.0f);
-    window.draw(hintText);
-
-    if (currentState == GameState::Pause) {
-        renderPause();
+    if (!gameOver && currentState == GameState::Play) {
+        hud->render(window, font);
     }
 
+    // Pause overlay
+    if (currentState == GameState::Pause) {
+        menuSystem->render(window, font, currentState, saveSystem);
+    }
+
+    // Game over overlay
     if (gameOver) {
-        renderGameOver();
+        // Pass stats to menu system for game over screen
+        menuSystem->setGameOverStats(score, bestScore, coinsThisRun, obstaclesDodged,
+                                      comboSystem->getComboCount(), distanceTraveled);
+        menuSystem->render(window, font, GameState::GameOver, saveSystem);
     }
 
     window.display();
