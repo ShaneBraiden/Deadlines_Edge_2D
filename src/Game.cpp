@@ -246,6 +246,18 @@ void Game::spawnObstacle() {
     float spawnX = static_cast<float>(window.getSize().x) + randomRange(rng, 60.0f, 260.0f);
     float spawnY = groundY;
 
+    // Prevent obstacle overlap: ensure minimum spacing from existing obstacles
+    constexpr float MIN_OBSTACLE_SPACING = 180.0f;  // Minimum pixels between obstacles
+    for (const auto& existingObstacle : obstacles) {
+        float existingX = existingObstacle.sprite.getPosition().x;
+        float existingWidth = existingObstacle.sprite.getGlobalBounds().width;
+        // Check if proposed spawn position is too close to an existing obstacle
+        if (std::abs(spawnX - existingX) < MIN_OBSTACLE_SPACING + existingWidth * 0.5f) {
+            // Push spawn position further right to avoid overlap
+            spawnX = existingX + MIN_OBSTACLE_SPACING + existingWidth * 0.5f + randomRange(rng, 20.0f, 80.0f);
+        }
+    }
+
     // Lab: arrow operator + template method call
     if (roll < 35) {
         obstacle.sprite.setTexture(assets->get<sf::Texture>(AssetKeys::OBSTACLE_CHAIR));
@@ -584,13 +596,15 @@ void Game::update(float dt) {
     float laneXWorld = physics->toWorld(sf::Vector2f(laneX, 0.0f)).x;
     playerBody->SetTransform(b2Vec2(laneXWorld, playerPos.y), 0.0f);
 
-    // Obstacle spawning
+    // Obstacle spawning - with maximum cap to prevent overcrowding
+    constexpr size_t MAX_OBSTACLES_ON_SCREEN = 8;
     obstacleSpawnTimer += dt;
-    if (obstacleSpawnTimer >= nextObstacleSpawnDelay) {
+    if (obstacleSpawnTimer >= nextObstacleSpawnDelay && obstacles.size() < MAX_OBSTACLES_ON_SCREEN) {
         spawnObstacle();
         obstacleSpawnTimer = 0.0f;
-        float spawnScale = std::max(0.55f, 1.0f - (obstacleBaseSpeed - 430.0f) / 600.0f);
-        nextObstacleSpawnDelay = randomRange(rng, 0.7f, 1.5f) * spawnScale;
+        // Spawn delay scales down with speed but maintains a minimum gap
+        float spawnScale = std::max(0.60f, 1.0f - (obstacleBaseSpeed - 430.0f) / 700.0f);
+        nextObstacleSpawnDelay = randomRange(rng, 0.85f, 1.6f) * spawnScale;
     }
 
     // Update obstacles

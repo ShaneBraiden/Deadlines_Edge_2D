@@ -111,14 +111,17 @@ void Player::handleInput(const InputManager& input) {
     bool jumpKeyDown = input.isKeyPressed(sf::Keyboard::Space) ||
                        input.isKeyPressed(sf::Keyboard::W) ||
                        input.isKeyPressed(sf::Keyboard::Up);
+    bool isDoubleClick = input.isSpaceBarDoubleClicked();
 
-    if (jumpKeyDown) {
+    if (jumpKeyDown || isDoubleClick) {
         // Allow jump if on ground OR if vertical velocity is very low (coyote-time-like fallback)
         b2Vec2 currentVel = body->GetLinearVelocity();
         bool canJump = isOnGround() || (std::abs(currentVel.y) < 0.5f);
 
         if (canJump) {
-            float impulse = Constants::PLAYER_JUMP_IMPULSE * body->GetMass();
+            // Double-click gives a higher jump (+50%)
+            float jumpMultiplier = isDoubleClick ? 1.5f : 1.0f;
+            float impulse = Constants::PLAYER_JUMP_IMPULSE * jumpMultiplier * body->GetMass();
             body->ApplyLinearImpulseToCenter(b2Vec2(0.0f, impulse), true);
         }
         else if (!runnerModeEnabled && isTouchingWall()) {
