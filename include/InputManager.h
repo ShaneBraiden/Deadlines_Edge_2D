@@ -1,10 +1,12 @@
 #pragma once
 
 #include <SFML/Window/Keyboard.hpp>
+#include <SFML/Window/Mouse.hpp>
 #include <SFML/System/Clock.hpp>
+#include <SFML/Graphics/RenderWindow.hpp>
 #include <set>
 
-// Tracks keyboard input state across frames using STL set.
+// Tracks keyboard and mouse input state across frames using STL set.
 //
 // WHY a dedicated class:
 //   Centralizes input logic. Supports "just pressed" and "just released"
@@ -23,6 +25,9 @@ public:
     // Shifts current keys to previous, then polls the keyboard.
     void update();
 
+    // Update mouse state (call with window reference for position)
+    void updateMouse(const sf::RenderWindow& window);
+
     // Key is currently held down.
     bool isKeyHeld(sf::Keyboard::Key key) const;
 
@@ -36,9 +41,22 @@ public:
     // Returns true on the frame where the second click is detected.
     bool isSpaceBarDoubleClicked() const;
 
+    // Mouse input queries
+    bool isMouseButtonHeld(sf::Mouse::Button button) const;
+    bool isMouseButtonPressed(sf::Mouse::Button button) const;
+    bool isMouseButtonReleased(sf::Mouse::Button button) const;
+    sf::Vector2f getMousePosition() const { return mousePosition; }
+
 private:
     std::set<sf::Keyboard::Key> currentKeys;    // Lab: STL set — keys held this frame
     std::set<sf::Keyboard::Key> previousKeys;   // Lab: STL set — keys held last frame
+
+    // Mouse state tracking
+    sf::Vector2f mousePosition;
+    bool currentMouseLeft;
+    bool previousMouseLeft;
+    bool currentMouseRight;
+    bool previousMouseRight;
 
     // Double-click tracking for space bar
     int   spacePressCount;              // Number of presses in current window

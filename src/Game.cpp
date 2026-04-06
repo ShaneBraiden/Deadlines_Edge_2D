@@ -31,6 +31,7 @@ Game::Game()
     , coinManager(nullptr)
     , saveSystem(nullptr)
     , achievementSystem(nullptr)
+    , projectileManager(nullptr)
     , currentState(GameState::Menu)
     , previousState(GameState::Menu)
     , assets(nullptr)
@@ -65,6 +66,13 @@ Game::Game()
     particleSystem = new ParticleSystem(winW, winH);
     parallaxBg = new ParallaxBackground();
 
+    // Set particle system textures
+    particleSystem->setTextures(
+        &assets->get<sf::Texture>(AssetKeys::EXPLOSION),
+        &assets->get<sf::Texture>(AssetKeys::HIT_SPARK),
+        &assets->get<sf::Texture>(AssetKeys::SMOKE_PUFF)
+    );
+
     // Lab: arrow operator + template method call
     parallaxBg->addLayer(assets->get<sf::Texture>(AssetKeys::BG_FAR), 0.10f);
     parallaxBg->addLayer(assets->get<sf::Texture>(AssetKeys::BG_MID), 0.28f);
@@ -87,6 +95,13 @@ Game::Game()
     powerUpManager = new PowerUpManager(winW, groundY);
     coinManager = new CoinManager(winW, groundY);
     achievementSystem = new AchievementSystem(saveSystem);
+    projectileManager = new ProjectileManager();
+    
+    // Set projectile textures
+    projectileManager->setTextures(
+        &assets->get<sf::Texture>(AssetKeys::BULLET),
+        &assets->get<sf::Texture>(AssetKeys::MUZZLE_FLASH)
+    );
 
     // Setup vignette
     float vigSize = 130.0f;
@@ -120,6 +135,9 @@ Game::~Game() {
 
     delete achievementSystem;
     achievementSystem = nullptr;
+
+    delete projectileManager;
+    projectileManager = nullptr;
 
     delete saveSystem;
     saveSystem = nullptr;
@@ -227,6 +245,7 @@ void Game::resetRun() {
     coinManager->reset();
     screenEffects->reset();
     hud->clearPowerUps();
+    projectileManager->reset();
 
     // Increment run count
     if (saveSystem) {
@@ -242,6 +261,7 @@ void Game::spawnObstacle() {
     obstacle.speed = obstacleBaseSpeed + randomRange(rng, -25.0f, 90.0f);
     obstacle.passed = false;
     obstacle.animTimer = 0.0f;
+    obstacle.hitPoints = RunnerObstacle::DEFAULT_HIT_POINTS;  // 2 hits to destroy
 
     float spawnX = static_cast<float>(window.getSize().x) + randomRange(rng, 60.0f, 260.0f);
     float spawnY = groundY;
@@ -411,6 +431,7 @@ void Game::run() {
 
         processEvents();
         inputManager.update();
+        inputManager.updateMouse(window);
 
         while (accumulator >= Constants::TIME_STEP) {
             update(Constants::TIME_STEP);
@@ -577,6 +598,11 @@ void Game::update(float dt) {
 
     // Handle player input
     player->handleInput(inputManager);
+
+    // Handle shooting with mouse
+    handleShooting();
+    updateProjectiles(scaledDt);
+    checkProjectileCollisions();
 
     // Update all entities
     for (auto* entity : entities) {
@@ -843,7 +869,13 @@ void Game::render() {
         window.draw(shadow);
 
         window.draw(obstacle.sprite);
+        
+        // Reset color if it was flashed from being hit
+        const_cast<RunnerObstacle&>(obstacle).sprite.setColor(sf::Color::White);
     }
+
+    // Draw projectiles (bullets)
+    projectileManager->render(window);
 
     // Particles
     if (particleSystem) {
@@ -1050,4 +1082,122 @@ void Game::renderVignette() {
     ));
     crashTint.setFillColor(sf::Color(80, 10, 10, 65));
     window.draw(crashTint);
+}
+
+void Game::handleShooting() {
+    if (!player || gameOver) return;
+
+    // Fire on left mouse click
+    if (inputManager.isMouseButtonPressed(sf::Mouse::Left)) {
+        sf::Vector2f playerPos = player->getScreenPosition();
+        sf::Vector2f mousePos = inputManager.getMousePosition();
+        
+        // Fire bullet from player center toward mouse
+        projectileManager->fire(playerPos, mousePos);
+    }
+}
+
+void Game::updateProjectiles(float dt) {
+    projectileManager->update(dt);
+}
+
+void Game::checkProjectileCollisions() {
+    auto& projectiles = projectileManager->getProjectilesMutable();
+
+    for (auto& proj : projectiles) {
+        if (!proj.active) continue;
+
+        // Check collision with each obstacle
+        for (auto& obstacle : obstacles) {
+            if (obstacle.hitPoints <= 0) continue;  // Already destroyed
+
+            sf::FloatRect obstacleBounds = obstacle.sprite.getGlobalBounds();
+            
+            // Simple point-in-rect collision for bullet
+            if (obstacleBounds.contains(proj.position)) {
+                // Hit the obstacle
+                obstacle.hitPoints--;
+                proj.active = false;  // Destroy bullet
+
+                // Visual feedback: flash the obstacle
+                obstacle.sprite.setColor(sf::Color(255, 150, 150));
+
+                // Trigger screen effects
+                screenEffects->triggerShake(3.0f);
+
+                // Get obstacle center for particle effects
+                sf::Vector2f obstacleCenter(
+                    obstacleBounds.left + obstacleBounds.width * 0.5f,
+                    obstacleBounds.top + obstacleBounds.height * 0.5f
+                );
+
+                // Determine color based on obstacle type
+                sf::Color explosionColor;
+                switch (obstacle.type) {
+                    case ObstacleType::Chair:
+                        explosionColor = sf::Color(139, 90, 43);   // Brown wood
+                        break;
+                    case ObstacleType::Bench:
+                        explosionColor = sf::Color(101, 67, 33);   // Dark wood
+                        break;
+                    case ObstacleType::Book:
+                        explosionColor = sf::Color(200, 180, 140); // Paper/beige
+                        break;
+                    case ObstacleType::Professor:
+                        explosionColor = sf::Color(80, 80, 100);   // Dark cloth
+                        break;
+                    case ObstacleType::ExamStack:
+                        explosionColor = sf::Color(240, 240, 230); // White paper
+                        break;
+                    case ObstacleType::CoffeeCart:
+                        explosionColor = sf::Color(70, 50, 30);    // Coffee brown
+                        break;
+                    default:
+                        explosionColor = sf::Color(150, 130, 100);
+                }
+
+                if (obstacle.hitPoints <= 0) {
+                    // Obstacle destroyed - spawn big explosion!
+                    particleSystem->spawnExplosion(obstacleCenter, explosionColor, 30);
+                    
+                    // Add some bright sparks
+                    particleSystem->spawnExplosion(obstacleCenter, sf::Color(255, 200, 100), 15);
+
+                    // Give bonus points
+                    int destroyBonus = 50;
+                    float scoreMultiplier = powerUpManager->getScoreMultiplier();
+                    int finalBonus = static_cast<int>(destroyBonus * scoreMultiplier);
+                    score += finalBonus;
+
+                    // Show destruction popup
+                    hud->triggerScorePopup("DESTROYED! +" + std::to_string(finalBonus),
+                        sf::Vector2f(obstacle.sprite.getPosition().x, 
+                                     obstacle.sprite.getPosition().y - 50.0f));
+                    hud->showToast("Object destroyed!", sf::Color(255, 200, 100));
+
+                    // Bigger screen shake for destruction
+                    screenEffects->triggerShake(8.0f);
+                    screenEffects->triggerFlash(sf::Color(255, 200, 100, 80), 0.1f);
+                } else {
+                    // Still has HP - spawn small hit effect
+                    particleSystem->spawnHitEffect(proj.position, explosionColor, 10);
+                    
+                    // Show hit popup
+                    hud->triggerScorePopup("HIT!",
+                        sf::Vector2f(obstacle.sprite.getPosition().x,
+                                     obstacle.sprite.getPosition().y - 30.0f));
+                }
+
+                break;  // One bullet can only hit one obstacle
+            }
+        }
+    }
+
+    // Remove destroyed obstacles
+    obstacles.erase(
+        std::remove_if(obstacles.begin(), obstacles.end(), [](const RunnerObstacle& o) {
+            return o.hitPoints <= 0;
+        }),
+        obstacles.end()
+    );
 }

@@ -20,6 +20,7 @@
 #include "ScreenEffects.h"
 #include "SaveSystem.h"
 #include "AchievementSystem.h"
+#include "ProjectileManager.h"
 
 // Core game class — owns the window, physics world, player, and all entities.
 // Runs the main loop with a fixed-timestep accumulator pattern.
@@ -64,6 +65,11 @@ private:
     void checkAchievements();
     void handleGameOver();
 
+    // Shooting system
+    void handleShooting();
+    void updateProjectiles(float dt);
+    void checkProjectileCollisions();
+
     // Obstacle types
     enum class ObstacleType {
         Chair,
@@ -80,6 +86,8 @@ private:
         bool passed;
         ObstacleType type;
         float animTimer;  // For animated obstacles
+        int hitPoints;    // Health: destroyed when reaches 0
+        static constexpr int DEFAULT_HIT_POINTS = 2;  // Takes 2 hits to destroy
     };
 
     sf::RenderWindow window;
@@ -114,6 +122,7 @@ private:
     CoinManager* coinManager;
     SaveSystem* saveSystem;
     AchievementSystem* achievementSystem;
+    ProjectileManager* projectileManager;
 
     // Runner state
     std::vector<RunnerObstacle> obstacles;

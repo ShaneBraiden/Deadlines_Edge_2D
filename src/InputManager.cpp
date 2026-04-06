@@ -27,6 +27,10 @@ InputManager::InputManager()
     : spacePressCount(0)
     , timeSinceLastSpacePress(0.0f)
     , spaceDoubleClickedThisFrame(false)
+    , currentMouseLeft(false)
+    , previousMouseLeft(false)
+    , currentMouseRight(false)
+    , previousMouseRight(false)
 {
 }
 
@@ -92,5 +96,37 @@ bool InputManager::isKeyReleased(sf::Keyboard::Key key) const {
 
 bool InputManager::isSpaceBarDoubleClicked() const {
     return spaceDoubleClickedThisFrame;
+}
+
+void InputManager::updateMouse(const sf::RenderWindow& window) {
+    // Shift current mouse state to previous
+    previousMouseLeft = currentMouseLeft;
+    previousMouseRight = currentMouseRight;
+
+    // Update current mouse state
+    currentMouseLeft = sf::Mouse::isButtonPressed(sf::Mouse::Left);
+    currentMouseRight = sf::Mouse::isButtonPressed(sf::Mouse::Right);
+
+    // Update mouse position relative to window
+    sf::Vector2i pixelPos = sf::Mouse::getPosition(window);
+    mousePosition = sf::Vector2f(static_cast<float>(pixelPos.x), static_cast<float>(pixelPos.y));
+}
+
+bool InputManager::isMouseButtonHeld(sf::Mouse::Button button) const {
+    if (button == sf::Mouse::Left) return currentMouseLeft;
+    if (button == sf::Mouse::Right) return currentMouseRight;
+    return false;
+}
+
+bool InputManager::isMouseButtonPressed(sf::Mouse::Button button) const {
+    if (button == sf::Mouse::Left) return currentMouseLeft && !previousMouseLeft;
+    if (button == sf::Mouse::Right) return currentMouseRight && !previousMouseRight;
+    return false;
+}
+
+bool InputManager::isMouseButtonReleased(sf::Mouse::Button button) const {
+    if (button == sf::Mouse::Left) return !currentMouseLeft && previousMouseLeft;
+    if (button == sf::Mouse::Right) return !currentMouseRight && previousMouseRight;
+    return false;
 }
 
