@@ -19,15 +19,8 @@ constexpr const char* OBSTACLE_CHAIR  = "obstacle_chair";
 constexpr const char* OBSTACLE_BENCH  = "obstacle_bench";
 constexpr const char* OBSTACLE_BOOK   = "obstacle_book";
 
-// Projectile and effect textures
+// Bullet texture (single sprite, muzzle flash and explosions are procedural)
 constexpr const char* BULLET          = "bullet";
-constexpr const char* EXPLOSION       = "explosion";
-constexpr const char* HIT_SPARK       = "hit_spark";
-constexpr const char* MUZZLE_FLASH    = "muzzle_flash";
-constexpr const char* SMOKE_PUFF      = "smoke_puff";
-constexpr const char* DESTROYED_CHAIR = "destroyed_chair";
-constexpr const char* DESTROYED_BENCH = "destroyed_bench";
-constexpr const char* DESTROYED_BOOK  = "destroyed_book";
 
 // Parallax background layers (repeated horizontally)
 constexpr const char* BG_FAR          = "bg_far";

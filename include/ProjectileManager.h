@@ -13,7 +13,9 @@ struct Projectile {
     float lifetime;
     float maxLifetime;
     bool active;
-    float rotation;  // Angle in degrees for sprite rotation
+    float rotation;      // Angle in degrees for sprite rotation
+    float animTimer;     // Animation timer
+    int currentFrame;    // Current animation frame (0-7)
 };
 
 class ProjectileManager {
@@ -54,6 +56,14 @@ private:
     // Muzzle flash effect
     sf::Vector2f lastMuzzlePos;
     float muzzleFlashTimer;
+    
+    // Animation: 8 frames in 4x2 grid (4 columns, 2 rows)
+    static constexpr int FRAME_COLS = 4;
+    static constexpr int FRAME_ROWS = 2;
+    static constexpr int FRAME_COUNT = 8;
+    static constexpr float FRAME_TIME = 0.06f;  // Time per frame
+    int frameWidth;
+    int frameHeight;
     
     static constexpr float BULLET_RADIUS = 6.0f;
     static constexpr float BULLET_LIFETIME = 2.0f;

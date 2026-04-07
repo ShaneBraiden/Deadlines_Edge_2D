@@ -66,12 +66,8 @@ Game::Game()
     particleSystem = new ParticleSystem(winW, winH);
     parallaxBg = new ParallaxBackground();
 
-    // Set particle system textures
-    particleSystem->setTextures(
-        &assets->get<sf::Texture>(AssetKeys::EXPLOSION),
-        &assets->get<sf::Texture>(AssetKeys::HIT_SPARK),
-        &assets->get<sf::Texture>(AssetKeys::SMOKE_PUFF)
-    );
+    // Particle system is fully procedural - no textures needed
+    particleSystem->setTextures(nullptr, nullptr, nullptr);
 
     // Lab: arrow operator + template method call
     parallaxBg->addLayer(assets->get<sf::Texture>(AssetKeys::BG_FAR), 0.10f);
@@ -97,10 +93,10 @@ Game::Game()
     achievementSystem = new AchievementSystem(saveSystem);
     projectileManager = new ProjectileManager();
     
-    // Set projectile textures
+    // Set projectile texture (bullet only, muzzle flash is procedural)
     projectileManager->setTextures(
         &assets->get<sf::Texture>(AssetKeys::BULLET),
-        &assets->get<sf::Texture>(AssetKeys::MUZZLE_FLASH)
+        nullptr
     );
 
     // Setup vignette
@@ -512,12 +508,7 @@ void Game::processEvents() {
 
         // In-game controls
         if (currentState == GameState::Play) {
-            if (event.key.code == sf::Keyboard::Escape) {
-                currentState = GameState::Pause;
-                menuSystem->resetPauseSelection();
-            }
-
-            // Game over - handle restart/quit
+            // When game over, only handle game over menu
             if (gameOver) {
                 if (event.key.code == sf::Keyboard::Enter || event.key.code == sf::Keyboard::Space) {
                     MenuSelection selection = menuSystem->getGameOverSelection();
@@ -534,6 +525,17 @@ void Game::processEvents() {
                 }
                 else if (event.key.code == sf::Keyboard::Down || event.key.code == sf::Keyboard::S) {
                     menuSystem->navigateDown();
+                }
+                else if (event.key.code == sf::Keyboard::Escape) {
+                    currentState = GameState::Menu;
+                    menuSystem->resetMenuState();
+                }
+            }
+            else {
+                // Normal gameplay - only Escape pauses
+                if (event.key.code == sf::Keyboard::Escape || event.key.code == sf::Keyboard::P) {
+                    currentState = GameState::Pause;
+                    menuSystem->resetPauseSelection();
                 }
             }
         }
@@ -561,14 +563,8 @@ void Game::update(float dt) {
     }
 
     if (currentState == GameState::Pause) {
-        // Handle pause menu input
-        if (inputManager.isKeyPressed(sf::Keyboard::P) || inputManager.isKeyPressed(sf::Keyboard::Escape)) {
-            currentState = GameState::Play;
-        }
-        if (inputManager.isKeyPressed(sf::Keyboard::Q)) {
-            currentState = GameState::Menu;
-            menuSystem->resetMenuState();
-        }
+        // Pause menu - navigation handled in processEvents()
+        // Just update any visual effects here
         return;
     }
 
@@ -577,13 +573,8 @@ void Game::update(float dt) {
     }
 
     if (gameOver) {
-        if (inputManager.isKeyPressed(sf::Keyboard::Enter)) {
-            resetRun();
-        }
-        if (inputManager.isKeyPressed(sf::Keyboard::Escape)) {
-            currentState = GameState::Menu;
-            menuSystem->resetMenuState();
-        }
+        // Game over - menu navigation handled in processEvents()
+        // Just update particles for visual effect
         particleSystem->update(dt);
         return;
     }
@@ -877,7 +868,7 @@ void Game::render() {
     // Draw projectiles (bullets)
     projectileManager->render(window);
 
-    // Particles
+    // Particles (now includes all destruction effects)
     if (particleSystem) {
         particleSystem->render(window);
     }
@@ -1157,11 +1148,24 @@ void Game::checkProjectileCollisions() {
                 }
 
                 if (obstacle.hitPoints <= 0) {
-                    // Obstacle destroyed - spawn big explosion!
-                    particleSystem->spawnExplosion(obstacleCenter, explosionColor, 30);
-                    
-                    // Add some bright sparks
-                    particleSystem->spawnExplosion(obstacleCenter, sf::Color(255, 200, 100), 15);
+                    // Obstacle destroyed - spawn type-specific destruction effect!
+                    switch (obstacle.type) {
+                        case ObstacleType::Chair:
+                        case ObstacleType::Bench:
+                        case ObstacleType::CoffeeCart:
+                            // Wood destruction - splinters and chunks
+                            particleSystem->spawnWoodDestruction(obstacleCenter);
+                            break;
+                        case ObstacleType::Book:
+                        case ObstacleType::ExamStack:
+                            // Paper destruction - fluttering pages
+                            particleSystem->spawnPaperDestruction(obstacleCenter);
+                            break;
+                        default:
+                            // Generic explosion
+                            particleSystem->spawnExplosion(obstacleCenter, explosionColor, 30);
+                            break;
+                    }
 
                     // Give bonus points
                     int destroyBonus = 50;

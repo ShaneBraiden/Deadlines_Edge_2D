@@ -15,15 +15,8 @@ void AssetManager::loadAll() {
     loadTexture(AssetKeys::OBSTACLE_BENCH, "assets/textures/obstacle_bench.png");
     loadTexture(AssetKeys::OBSTACLE_BOOK, "assets/textures/obstacle_book.png");
 
-    // Projectile and effect textures
+    // Projectile and effect textures (bullet texture optional, system works procedurally)
     loadTexture(AssetKeys::BULLET, "assets/textures/bullet.png");
-    loadTexture(AssetKeys::EXPLOSION, "assets/textures/explosion.png");
-    loadTexture(AssetKeys::HIT_SPARK, "assets/textures/hit_spark.png");
-    loadTexture(AssetKeys::MUZZLE_FLASH, "assets/textures/muzzle_flash.png");
-    loadTexture(AssetKeys::SMOKE_PUFF, "assets/textures/smoke_puff.png");
-    loadTexture(AssetKeys::DESTROYED_CHAIR, "assets/textures/destroyed_chair.png");
-    loadTexture(AssetKeys::DESTROYED_BENCH, "assets/textures/destroyed_bench.png");
-    loadTexture(AssetKeys::DESTROYED_BOOK, "assets/textures/destroyed_book.png");
 
     // Parallax background layers
     loadTexture(AssetKeys::BG_FAR, "assets/textures/bg_far.png");

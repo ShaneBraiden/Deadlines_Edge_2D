@@ -65,11 +65,6 @@ private:
     void checkAchievements();
     void handleGameOver();
 
-    // Shooting system
-    void handleShooting();
-    void updateProjectiles(float dt);
-    void checkProjectileCollisions();
-
     // Obstacle types
     enum class ObstacleType {
         Chair,
@@ -79,6 +74,11 @@ private:
         ExamStack,  // New: tall stack, must duck
         CoffeeCart  // New: wide, must jump high
     };
+
+    // Shooting system
+    void handleShooting();
+    void updateProjectiles(float dt);
+    void checkProjectileCollisions();
 
     struct RunnerObstacle {
         sf::Sprite sprite;
