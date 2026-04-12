@@ -3,6 +3,7 @@
 #include <SFML/Graphics.hpp>
 #include <list>
 #include <cmath>
+#include "Constants.h"
 
 // Manages projectiles (bullets) fired by the player.
 // Bullets travel toward mouse cursor direction and can destroy obstacles.
@@ -26,7 +27,14 @@ public:
     void setTextures(sf::Texture* bulletTex, sf::Texture* muzzleFlashTex);
 
     // Fire a bullet from origin toward target direction
-    void fire(const sf::Vector2f& origin, const sf::Vector2f& target, float speed = 1200.0f);
+    bool fire(const sf::Vector2f& origin, const sf::Vector2f& target, float speed = 1200.0f);
+
+    // Ammo management
+    void addAmmo(int amount);
+    void setUnlimitedAmmo(bool enabled);
+    int getAmmo() const { return ammoCount; }
+    int getMaxAmmo() const { return maxAmmo; }
+    bool hasUnlimitedAmmo() const { return unlimitedAmmo; }
 
     // Update all projectiles
     void update(float dt);
@@ -65,8 +73,12 @@ private:
     int frameWidth;
     int frameHeight;
     
-    static constexpr float BULLET_RADIUS = 6.0f;
+    static constexpr float BULLET_RADIUS = 1.5f;
     static constexpr float BULLET_LIFETIME = 2.0f;
     static constexpr float FIRE_COOLDOWN = 0.15f;  // Time between shots
     static constexpr float MUZZLE_FLASH_DURATION = 0.05f;
+
+    int ammoCount;
+    int maxAmmo;
+    bool unlimitedAmmo;
 };

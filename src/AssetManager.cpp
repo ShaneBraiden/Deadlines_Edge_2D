@@ -11,9 +11,11 @@ void AssetManager::loadAll() {
     loadTexture(AssetKeys::PLAYER_SHEET, "assets/textures/student_runner.png");
 
     // Obstacle textures
-    loadTexture(AssetKeys::OBSTACLE_CHAIR, "assets/textures/obstacle_chair.png");
-    loadTexture(AssetKeys::OBSTACLE_BENCH, "assets/textures/obstacle_bench.png");
-    loadTexture(AssetKeys::OBSTACLE_BOOK, "assets/textures/obstacle_book.png");
+    loadTexture(AssetKeys::OBSTACLE_CHAIR,     "assets/textures/obstacle_chair.png");
+    loadTexture(AssetKeys::OBSTACLE_BENCH,     "assets/textures/obstacle_bench.png");
+    loadTexture(AssetKeys::OBSTACLE_BOOK,      "assets/textures/obstacle_book.png");
+    loadTexture(AssetKeys::OBSTACLE_PROFESSOR, "assets/textures/obstacle_professor.png");
+    loadTexture(AssetKeys::ASSIGNMENT,         "assets/textures/assignment.png");
 
     // Projectile and effect textures (bullet texture optional, system works procedurally)
     loadTexture(AssetKeys::BULLET, "assets/textures/bullet.png");

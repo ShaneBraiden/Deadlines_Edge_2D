@@ -16,11 +16,12 @@ namespace Constants {
     constexpr int   POSITION_ITERATIONS = 3;
 
     // -- Player (Ethan Calloway) --
-    constexpr float PLAYER_WIDTH  = 1.6f;             // meters (80 pixels at PPM=50)
-    constexpr float PLAYER_HEIGHT = 2.8f;             // meters (140 pixels at PPM=50) - BIGGER
+    constexpr float PLAYER_WIDTH  = 2.5f;             // meters (125 pixels at PPM=50)
+    constexpr float PLAYER_HEIGHT = 4.375f;           // meters (218.75 pixels at PPM=50) - 25% bigger
     constexpr float PLAYER_MOVE_SPEED = 6.0f;         // m/s max horizontal speed
     constexpr float PLAYER_JUMP_IMPULSE = 16.0f;      // m/s initial upward velocity - STRONGER
-    constexpr float PLAYER_DOUBLE_CLICK_EXTRA_SCREEN_HEIGHT = 0.5f; // +50% of screen height above normal jump
+    constexpr float PLAYER_JUMP_HEIGHT_MULTIPLIER = 1.56f;  // Higher jump for runner mode (+30%)
+    constexpr float PLAYER_JUMP_DISTANCE_MULTIPLIER = 1.625f; // Farther jump for runner mode (+30%)
     constexpr float PLAYER_GROUND_ACCEL = 0.15f;      // Velocity smoothing on ground (0-1, lower = heavier)
     constexpr float PLAYER_AIR_ACCEL = 0.08f;         // Velocity smoothing in air (less control)
     constexpr float PLAYER_DENSITY = 1.0f;            // kg/m^2
@@ -63,7 +64,15 @@ namespace Constants {
     constexpr float POWERUP_SLOWMO_FACTOR = 0.5f;     // Time scale during slow-mo
     constexpr float POWERUP_DOUBLESCORE_DURATION = 8.0f;
     constexpr float POWERUP_MAGNET_DURATION = 6.0f;
+    constexpr float POWERUP_UNLIMITED_BULLETS_DURATION = 6.0f;
     constexpr float POWERUP_MAGNET_RANGE = 300.0f;    // Pixel attraction radius
+
+    // -- Projectile System --
+    constexpr int   PROJECTILE_STARTING_AMMO = 18;
+    constexpr int   PROJECTILE_MAX_AMMO = 30;
+    constexpr int   PROJECTILE_AMMO_PICKUP = 5;              // Ammo granted per pickup
+    constexpr float PROJECTILE_AMMO_DROP_DISTANCE_MIN = 100.0f; // meters
+    constexpr float PROJECTILE_AMMO_DROP_DISTANCE_MAX = 200.0f; // meters
 
     // -- Coin System --
     constexpr float COIN_SPAWN_INTERVAL_MIN = 2.0f;

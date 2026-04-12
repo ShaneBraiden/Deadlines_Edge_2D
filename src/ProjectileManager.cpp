@@ -1,4 +1,5 @@
 #include "ProjectileManager.h"
+#include <algorithm>
 #include <cmath>
 
 ProjectileManager::ProjectileManager()
@@ -9,6 +10,9 @@ ProjectileManager::ProjectileManager()
     , muzzleFlashTimer(0.0f)
     , frameWidth(0)
     , frameHeight(0)
+    , ammoCount(Constants::PROJECTILE_STARTING_AMMO)
+    , maxAmmo(Constants::PROJECTILE_MAX_AMMO)
+    , unlimitedAmmo(false)
 {
 }
 
@@ -26,13 +30,17 @@ void ProjectileManager::setTextures(sf::Texture* bulletTex, sf::Texture* muzzleF
         // Set initial frame (top-left)
         bulletSprite.setTextureRect(sf::IntRect(0, 0, frameWidth, frameHeight));
         bulletSprite.setOrigin(frameWidth / 2.0f, frameHeight / 2.0f);
-        bulletSprite.setScale(1.5f, 1.5f);  // Scale up pixel art
+        bulletSprite.setScale(0.375f, 0.375f);  // Smaller bullet sprite
     }
 }
 
-void ProjectileManager::fire(const sf::Vector2f& origin, const sf::Vector2f& target, float speed) {
+bool ProjectileManager::fire(const sf::Vector2f& origin, const sf::Vector2f& target, float speed) {
     if (timeSinceLastFire < fireCooldown) {
-        return;  // Still on cooldown
+        return false;  // Still on cooldown
+    }
+
+    if (!unlimitedAmmo && ammoCount <= 0) {
+        return false;
     }
 
     // Calculate direction vector from origin to target
@@ -40,7 +48,7 @@ void ProjectileManager::fire(const sf::Vector2f& origin, const sf::Vector2f& tar
     float length = std::sqrt(direction.x * direction.x + direction.y * direction.y);
     
     if (length < 1.0f) {
-        return;  // Target too close, skip
+        return false;  // Target too close, skip
     }
 
     // Normalize direction
@@ -60,10 +68,26 @@ void ProjectileManager::fire(const sf::Vector2f& origin, const sf::Vector2f& tar
 
     projectiles.push_back(bullet);
     timeSinceLastFire = 0.0f;
+    if (!unlimitedAmmo) {
+        ammoCount = std::max(0, ammoCount - 1);
+    }
     
     // Trigger muzzle flash
     lastMuzzlePos = origin;
     muzzleFlashTimer = MUZZLE_FLASH_DURATION;
+    return true;
+}
+
+void ProjectileManager::addAmmo(int amount) {
+    if (amount <= 0) {
+        return;
+    }
+
+    ammoCount = std::min(maxAmmo, ammoCount + amount);
+}
+
+void ProjectileManager::setUnlimitedAmmo(bool enabled) {
+    unlimitedAmmo = enabled;
 }
 
 void ProjectileManager::update(float dt) {
@@ -171,4 +195,6 @@ void ProjectileManager::reset() {
     projectiles.clear();
     timeSinceLastFire = FIRE_COOLDOWN;  // Allow immediate shot after reset
     muzzleFlashTimer = 0.0f;
+    ammoCount = Constants::PROJECTILE_STARTING_AMMO;
+    unlimitedAmmo = false;
 }

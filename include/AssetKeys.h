@@ -15,9 +15,11 @@ namespace AssetKeys {
 constexpr const char* PLAYER_SHEET    = "student_runner";
 
 // Obstacle textures
-constexpr const char* OBSTACLE_CHAIR  = "obstacle_chair";
-constexpr const char* OBSTACLE_BENCH  = "obstacle_bench";
-constexpr const char* OBSTACLE_BOOK   = "obstacle_book";
+constexpr const char* OBSTACLE_CHAIR     = "obstacle_chair";
+constexpr const char* OBSTACLE_BENCH     = "obstacle_bench";
+constexpr const char* OBSTACLE_BOOK      = "obstacle_book";
+constexpr const char* OBSTACLE_PROFESSOR = "obstacle_professor";  // 2 rows x 4 cols spritesheet
+constexpr const char* ASSIGNMENT         = "assignment";          // Paper sheet thrown by professor
 
 // Bullet texture (single sprite, muzzle flash and explosions are procedural)
 constexpr const char* BULLET          = "bullet";

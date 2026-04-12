@@ -12,6 +12,8 @@ enum class PowerUpType {
     SlowMotion,   // Slows down time
     DoubleScore,  // 2x score multiplier
     Magnet,       // Attracts coins
+    Ammo,         // Instant ammo pickup
+    UnlimitedBullets, // Temporary infinite ammo
     COUNT
 };
 
@@ -43,7 +45,7 @@ public:
     void spawnRandomPowerUp(float x, float y, float speed, std::mt19937& rng);
 
     // Collection
-    bool checkCollection(const sf::FloatRect& playerBounds);
+    bool checkCollection(const sf::FloatRect& playerBounds, PowerUpType* collectedType = nullptr);
     void collectPowerUp(size_t index);
 
     // Rendering

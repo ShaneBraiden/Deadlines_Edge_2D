@@ -87,4 +87,9 @@ private:
     float hitReactionTimer;
     float flashTimer;
     bool flashVisible;
+
+    // Animation polish
+    float runBobTimer;       // Drives vertical bob during run
+    float landSquashTimer;   // Brief squash on landing
+    bool  wasOnGround;       // Ground state last frame (for landing detection)
 };

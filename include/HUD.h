@@ -40,6 +40,7 @@ public:
     void setScore(float score);
     void setBestScore(float best);
     void setCoins(int coins);
+    void setAmmo(int ammoCount, int maxAmmo, bool unlimitedAmmo);
 
     // Combo system
     void setCombo(int combo, float multiplier);
@@ -77,11 +78,15 @@ private:
     float bestScore;
     int coins;
     int combo;
+    int ammoCount;
+    int maxAmmo;
+    bool unlimitedAmmo;
     float comboMultiplier;
     float distance;
     float speed;
     float maxSpeed;
     std::string currentMilestone;
+    void renderAmmo();
 
     // Animation state
     float comboFlashTimer;

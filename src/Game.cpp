@@ -37,7 +37,7 @@ Game::Game()
     , assets(nullptr)
     , obstacleSpawnTimer(0.0f)
     , nextObstacleSpawnDelay(1.2f)
-    , obstacleBaseSpeed(430.0f)
+    , obstacleBaseSpeed(344.0f)
     , score(0.0f)
     , bestScore(0.0f)
     , gameOver(false)
@@ -48,6 +48,7 @@ Game::Game()
     , obstaclesDodged(0)
     , coinsThisRun(0)
     , distanceTraveled(0.0f)
+    , nextAmmoDropDistance(0.0f)
 {
     window.setFramerateLimit(60);
 
@@ -116,6 +117,21 @@ Game::Game()
     vignetteRight.setSize(sf::Vector2f(vigSize, winH));
     vignetteRight.setPosition(winW - vigSize, 0.0f);
     vignetteRight.setFillColor(sf::Color(0, 0, 0, 70));
+
+    if (!gameplayMusic.openFromFile("assets/audio/main.mp3")) {
+        std::cerr << "Warning: Failed to load gameplay music from assets/audio/main.mp3\n";
+    } else {
+        gameplayMusic.setLoop(true);
+        gameplayMusic.setVolume(70.0f);
+    }
+
+    // Bullet / pen sound effect
+    if (!bulletSoundBuffer.loadFromFile("assets/audio/bullet.mp3")) {
+        std::cerr << "Warning: Failed to load bullet sound from assets/audio/bullet.mp3\n";
+    } else {
+        bulletSound.setBuffer(bulletSoundBuffer);
+        bulletSound.setVolume(80.0f);
+    }
 }
 
 Game::~Game() {
@@ -182,6 +198,12 @@ void Game::resetRun() {
         delete entity;
     }
     entities.clear();
+
+    // Destroy any kinematic obstacle bodies before clearing the list
+    // (physics world is about to be recreated, but clean up explicitly for safety)
+    for (auto& obs : obstacles) {
+        obs.physBody = nullptr;  // Old physics world owns the memory; it's deleted below
+    }
     obstacles.clear();
     player = nullptr;
     groundBody = nullptr;
@@ -224,8 +246,8 @@ void Game::resetRun() {
 
     // Reset runner state
     obstacleSpawnTimer = 0.0f;
-    nextObstacleSpawnDelay = 1.1f;
-    obstacleBaseSpeed = 430.0f;
+    nextObstacleSpawnDelay = 1.32f;   // 1.1 * 1.2 — matches reduced spawn rate
+    obstacleBaseSpeed = 344.0f;       // 430 * 0.8 — 20% slower start
     score = 0.0f;
     gameOver = false;
 
@@ -234,6 +256,11 @@ void Game::resetRun() {
     obstaclesDodged = 0;
     coinsThisRun = 0;
     distanceTraveled = 0.0f;
+    nextAmmoDropDistance = randomRange(
+        rng,
+        Constants::PROJECTILE_AMMO_DROP_DISTANCE_MIN,
+        Constants::PROJECTILE_AMMO_DROP_DISTANCE_MAX
+    );
 
     // Reset systems
     comboSystem->reset();
@@ -242,6 +269,7 @@ void Game::resetRun() {
     screenEffects->reset();
     hud->clearPowerUps();
     projectileManager->reset();
+    assignments.clear();
 
     // Increment run count
     if (saveSystem) {
@@ -254,60 +282,83 @@ void Game::spawnObstacle() {
     int roll = typeDist(rng);
 
     RunnerObstacle obstacle;
-    obstacle.speed = obstacleBaseSpeed + randomRange(rng, -25.0f, 90.0f);
+    obstacle.speed = obstacleBaseSpeed;
     obstacle.passed = false;
     obstacle.animTimer = 0.0f;
-    obstacle.hitPoints = RunnerObstacle::DEFAULT_HIT_POINTS;  // 2 hits to destroy
+    obstacle.hitPoints = RunnerObstacle::DEFAULT_HIT_POINTS;
+    obstacle.physBody = nullptr;
+    obstacle.playerOnTop = false;
+    obstacle.profFrame            = 0;
+    obstacle.profFrameTimer       = 0.0f;
+    obstacle.profThrowTimer       = RunnerObstacle::PROF_THROW_DELAY;
+    obstacle.assignmentsThrown    = 0;
+    obstacle.assignmentsDestroyed = 0;
+    obstacle.dying                = false;
+    obstacle.dyingTimer           = 0.0f;
 
-    float spawnX = static_cast<float>(window.getSize().x) + randomRange(rng, 60.0f, 260.0f);
     float spawnY = groundY;
 
-    // Prevent obstacle overlap: ensure minimum spacing from existing obstacles
-    constexpr float MIN_OBSTACLE_SPACING = 180.0f;  // Minimum pixels between obstacles
-    for (const auto& existingObstacle : obstacles) {
-        float existingX = existingObstacle.sprite.getPosition().x;
-        float existingWidth = existingObstacle.sprite.getGlobalBounds().width;
-        // Check if proposed spawn position is too close to an existing obstacle
-        if (std::abs(spawnX - existingX) < MIN_OBSTACLE_SPACING + existingWidth * 0.5f) {
-            // Push spawn position further right to avoid overlap
-            spawnX = existingX + MIN_OBSTACLE_SPACING + existingWidth * 0.5f + randomRange(rng, 20.0f, 80.0f);
-        }
-    }
+    // Minimum gap between obstacles, expanded by 2.5x as requested.
+    constexpr float MIN_OBSTACLE_SPACING = 260.0f;
+    constexpr float OBSTACLE_GAP = MIN_OBSTACLE_SPACING * 2.5f;
+
+    // Start from the right edge of the last obstacle so spacing is deterministic.
+    float spawnX = static_cast<float>(window.getSize().x) + 60.0f;
 
     // Lab: arrow operator + template method call
     if (roll < 35) {
         obstacle.sprite.setTexture(assets->get<sf::Texture>(AssetKeys::OBSTACLE_CHAIR));
-        obstacle.sprite.setScale(4.5f, 4.5f);
+        obstacle.sprite.setScale(0.22f, 0.22f);
         obstacle.type = ObstacleType::Chair;
     }
     else if (roll < 60) {
         obstacle.sprite.setTexture(assets->get<sf::Texture>(AssetKeys::OBSTACLE_BENCH));
-        obstacle.sprite.setScale(3.2f, 3.2f);
+        obstacle.sprite.setScale(0.28f, 0.28f);
         obstacle.type = ObstacleType::Bench;
     }
     else if (roll < 80) {
         obstacle.sprite.setTexture(assets->get<sf::Texture>(AssetKeys::OBSTACLE_BOOK));
-        obstacle.sprite.setScale(2.0f, 2.0f);
-        spawnY = groundY - 100.0f;  // Flying book at head height
+        obstacle.sprite.setScale(0.15f, 0.15f);
+        spawnY = groundY - 220.0f;  // Flying book — raised higher, must duck or jump under
         obstacle.type = ObstacleType::Book;
     }
-    else if (roll < 90) {
-        // Professor obstacle - tall, slow
-        obstacle.sprite.setTexture(assets->get<sf::Texture>(AssetKeys::OBSTACLE_CHAIR));  // Reuse for now
-        obstacle.sprite.setScale(5.0f, 6.0f);
-        obstacle.speed *= 0.7f;  // Professors walk slow
-        obstacle.type = ObstacleType::Professor;
-    }
     else {
-        // Coffee cart - wide
-        obstacle.sprite.setTexture(assets->get<sf::Texture>(AssetKeys::OBSTACLE_BENCH));  // Reuse for now
-        obstacle.sprite.setScale(5.0f, 4.0f);
-        obstacle.type = ObstacleType::CoffeeCart;
+        // Professor — animated spritesheet (2 rows x 4 cols = 8 frames)
+        sf::Texture& profTex = assets->get<sf::Texture>(AssetKeys::OBSTACLE_PROFESSOR);
+        obstacle.sprite.setTexture(profTex);
+        sf::Vector2u ts = profTex.getSize();
+        int fw = static_cast<int>(ts.x) / RunnerObstacle::PROF_COLS;
+        int fh = static_cast<int>(ts.y) / RunnerObstacle::PROF_ROWS;
+        obstacle.sprite.setTextureRect(sf::IntRect(0, 0, fw, fh));
+        obstacle.sprite.setScale(0.55f, 0.55f);
+        obstacle.type = ObstacleType::Professor;
     }
 
     sf::FloatRect local = obstacle.sprite.getLocalBounds();
+    float scaledWidth = local.width * std::abs(obstacle.sprite.getScale().x);
+
+    if (!obstacles.empty()) {
+        const auto& previousObstacle = obstacles.back();
+        sf::FloatRect previousBounds = previousObstacle.sprite.getGlobalBounds();
+        float previousBackEdge = previousBounds.left + previousBounds.width;
+        spawnX = previousBackEdge + OBSTACLE_GAP + (scaledWidth * 0.5f);
+    }
+
     obstacle.sprite.setOrigin(local.width * 0.5f, local.height);
     obstacle.sprite.setPosition(spawnX, spawnY);
+
+    // Bench and chair become standable platforms via a kinematic Box2D body.
+    // The body top surface is flush with the sprite top so the player can land on it.
+    if (obstacle.type == ObstacleType::Chair || obstacle.type == ObstacleType::Bench) {
+        sf::FloatRect gb = obstacle.sprite.getGlobalBounds();
+        float halfW = physics->toMeters(gb.width  * 0.5f);
+        float halfH = physics->toMeters(gb.height * 0.5f);
+        // Sprite origin is bottom-centre, so centre Y in screen = spawnY - gb.height*0.5
+        sf::Vector2f centerScreen(spawnX, spawnY - gb.height * 0.5f);
+        b2Vec2 worldCenter = physics->toWorld(centerScreen);
+        obstacle.physBody = physics->createKinematicBody(worldCenter.x, worldCenter.y, halfW, halfH);
+    }
+
     obstacles.push_back(obstacle);
 }
 
@@ -321,11 +372,25 @@ void Game::updateObstacles(float dt) {
         // Update animation timer for animated obstacles
         obstacle.animTimer += dt;
 
-        // Bobbing animation for flying books
+        // Bobbing animation for flying books — raised higher
         if (obstacle.type == ObstacleType::Book) {
-            float bob = std::sin(obstacle.animTimer * 4.0f) * 8.0f;
+            float bob = std::sin(obstacle.animTimer * 4.5f) * 10.0f;
             sf::Vector2f pos = obstacle.sprite.getPosition();
-            obstacle.sprite.setPosition(pos.x, groundY - 100.0f + bob);
+            obstacle.sprite.setPosition(pos.x, groundY - 195.0f + bob);
+        }
+
+        // Sync kinematic physics body to the sprite position each frame
+        if (obstacle.physBody) {
+            sf::FloatRect gb = obstacle.sprite.getGlobalBounds();
+            sf::Vector2f centerScreen(
+                obstacle.sprite.getPosition().x,
+                obstacle.sprite.getPosition().y - gb.height * 0.5f
+            );
+            b2Vec2 worldCenter = physics->toWorld(centerScreen);
+            float screenVelX = -obstacle.speed * timeScale;
+            obstacle.physBody->SetLinearVelocity(
+                b2Vec2(physics->toMeters(screenVelX), 0.0f));
+            obstacle.physBody->SetTransform(worldCenter, 0.0f);
         }
 
         // Check if passed player lane
@@ -333,24 +398,28 @@ void Game::updateObstacles(float dt) {
             obstacle.passed = true;
             obstaclesDodged++;
 
-            // Calculate score bonus
             int baseBonus = 20;
             float scoreMultiplier = powerUpManager->getScoreMultiplier();
             int finalBonus = comboSystem->calculateBonus(static_cast<int>(baseBonus * scoreMultiplier));
             score += finalBonus;
-
-            // Register dodge with combo system
             comboSystem->registerDodge();
-
-            // Show score popup
-            hud->triggerScorePopup("+" + std::to_string(finalBonus), 
+            hud->triggerScorePopup("+" + std::to_string(finalBonus),
                 sf::Vector2f(laneX + 50.0f, groundY - 100.0f));
         }
     }
 
+    // Destroy physics bodies of off-screen obstacles before erasing them
+    for (auto& obstacle : obstacles) {
+        sf::FloatRect bounds = obstacle.sprite.getGlobalBounds();
+        if (bounds.left + bounds.width < -30.0f && obstacle.physBody) {
+            physics->getWorld()->DestroyBody(obstacle.physBody);
+            obstacle.physBody = nullptr;
+        }
+    }
+
     obstacles.erase(
-        std::remove_if(obstacles.begin(), obstacles.end(), [](const RunnerObstacle& obstacle) {
-            sf::FloatRect bounds = obstacle.sprite.getGlobalBounds();
+        std::remove_if(obstacles.begin(), obstacles.end(), [](const RunnerObstacle& o) {
+            sf::FloatRect bounds = o.sprite.getGlobalBounds();
             return bounds.left + bounds.width < -30.0f;
         }),
         obstacles.end()
@@ -368,12 +437,27 @@ bool Game::checkObstacleCollision() {
     playerBounds.width *= 0.46f;
     playerBounds.height *= 0.80f;
 
+    float playerBottom = playerBounds.top + playerBounds.height;
+
     for (const auto& obstacle : obstacles) {
+        // Already scrolled behind the player — never count as a hit
+        if (obstacle.passed) continue;
+
         sf::FloatRect obstacleBounds = obstacle.sprite.getGlobalBounds();
         obstacleBounds.left += obstacleBounds.width * 0.12f;
-        obstacleBounds.top += obstacleBounds.height * 0.12f;
-        obstacleBounds.width *= 0.76f;
+        obstacleBounds.top  += obstacleBounds.height * 0.12f;
+        obstacleBounds.width  *= 0.76f;
         obstacleBounds.height *= 0.82f;
+
+        // Player is cleanly above this obstacle — a good jump clears it
+        if (!player->isOnGround() && playerBottom <= obstacleBounds.top) continue;
+
+        // Bench / chair are platforms: only register a hit when the player runs into
+        // the SIDE — not when they are standing on top or are above the top surface.
+        if (obstacle.physBody) {
+            // Allow up to 20px below the obstacle's visual top before counting as a side hit
+            if (playerBottom < obstacleBounds.top + 20.0f) continue;
+        }
 
         if (playerBounds.intersects(obstacleBounds)) {
             return true;
@@ -543,6 +627,8 @@ void Game::processEvents() {
 }
 
 void Game::update(float dt) {
+    updateGameplayMusic();
+
     // Update screen effects regardless of state
     screenEffects->update(dt);
 
@@ -583,6 +669,9 @@ void Game::update(float dt) {
     float timeScale = powerUpManager->getSlowMoFactor();
     float scaledDt = dt * timeScale;
 
+    // Unlimited ammo only when that power-up is active
+    projectileManager->setUnlimitedAmmo(powerUpManager->isActive(PowerUpType::UnlimitedBullets));
+
     // Update run time and distance
     runTime += dt;
     distanceTraveled += obstacleBaseSpeed * dt * 0.1f;
@@ -613,6 +702,22 @@ void Game::update(float dt) {
     float laneXWorld = physics->toWorld(sf::Vector2f(laneX, 0.0f)).x;
     playerBody->SetTransform(b2Vec2(laneXWorld, playerPos.y), 0.0f);
 
+    // Jump ceiling: player cannot rise above 28% from the top of the screen
+    float winH = static_cast<float>(window.getSize().y);
+    float ceilingScreenY = winH * 0.28f;
+    float playerHalfPixels = Constants::PLAYER_HEIGHT * Constants::PPM * 0.5f;
+    float ceilingCenterScreenY = ceilingScreenY + playerHalfPixels;
+    b2Vec2 ceilingWorld = physics->toWorld(sf::Vector2f(0.0f, ceilingCenterScreenY));
+
+    b2Vec2 curPos = playerBody->GetPosition();
+    if (curPos.y > ceilingWorld.y) {
+        // Cap upward velocity
+        b2Vec2 curVel = playerBody->GetLinearVelocity();
+        if (curVel.y > 0.0f) curVel.y = 0.0f;
+        playerBody->SetLinearVelocity(curVel);
+        playerBody->SetTransform(b2Vec2(curPos.x, ceilingWorld.y), 0.0f);
+    }
+
     // Obstacle spawning - with maximum cap to prevent overcrowding
     constexpr size_t MAX_OBSTACLES_ON_SCREEN = 8;
     obstacleSpawnTimer += dt;
@@ -620,39 +725,64 @@ void Game::update(float dt) {
         spawnObstacle();
         obstacleSpawnTimer = 0.0f;
         // Spawn delay scales down with speed but maintains a minimum gap
-        float spawnScale = std::max(0.60f, 1.0f - (obstacleBaseSpeed - 430.0f) / 700.0f);
-        nextObstacleSpawnDelay = randomRange(rng, 0.85f, 1.6f) * spawnScale;
+        // Base delay range widened by 20% to reduce obstacle density
+        float spawnScale = std::max(0.60f, 1.0f - (obstacleBaseSpeed - 344.0f) / 700.0f);
+        nextObstacleSpawnDelay = randomRange(rng, 1.02f, 1.92f) * spawnScale;
     }
 
     // Update obstacles
     updateObstacles(scaledDt);
+    updateProfessors(dt);
+    updateAssignments(dt);
 
     // Update power-ups and coins
     powerUpManager->update(dt, obstacleBaseSpeed, rng);
     coinManager->update(dt, obstacleBaseSpeed, rng);
 
+    // Guaranteed ammo drop cadence by distance traveled (every 100-200m).
+    while (distanceTraveled >= nextAmmoDropDistance) {
+        float spawnX = static_cast<float>(window.getSize().x) + 100.0f;
+        float spawnY = groundY - 80.0f;
+        powerUpManager->spawnPowerUp(PowerUpType::Ammo, spawnX, spawnY, obstacleBaseSpeed);
+        nextAmmoDropDistance += randomRange(
+            rng,
+            Constants::PROJECTILE_AMMO_DROP_DISTANCE_MIN,
+            Constants::PROJECTILE_AMMO_DROP_DISTANCE_MAX
+        );
+    }
+
     // Check power-up collection
     if (player) {
         sf::FloatRect playerBounds = player->getBoundsScreen();
-        if (powerUpManager->checkCollection(playerBounds)) {
+        PowerUpType collectedType;
+        if (powerUpManager->checkCollection(playerBounds, &collectedType)) {
             // Update HUD with active power-ups
-            for (const auto& effect : powerUpManager->getActiveEffects()) {
-                std::string name;
-                sf::Color color;
-                switch (effect.type) {
-                    case PowerUpType::Shield:
-                        name = "Shield"; color = sf::Color(100, 180, 255); break;
-                    case PowerUpType::SlowMotion:
-                        name = "SlowMo"; color = sf::Color(180, 100, 255); break;
-                    case PowerUpType::DoubleScore:
-                        name = "Double"; color = sf::Color(255, 215, 0); break;
-                    case PowerUpType::Magnet:
-                        name = "Magnet"; color = sf::Color(255, 100, 150); break;
-                    default: name = "Power"; color = sf::Color::White;
+            if (collectedType == PowerUpType::Ammo) {
+                projectileManager->addAmmo(Constants::PROJECTILE_AMMO_PICKUP);
+                hud->triggerScorePopup("+" + std::to_string(Constants::PROJECTILE_AMMO_PICKUP) + " ammo",
+                    player->getScreenPosition());
+                hud->showToast("Ammo picked up", Constants::UI_SECONDARY);
+            } else {
+                for (const auto& effect : powerUpManager->getActiveEffects()) {
+                    std::string name;
+                    sf::Color color;
+                    switch (effect.type) {
+                        case PowerUpType::Shield:
+                            name = "Shield"; color = sf::Color(100, 180, 255); break;
+                        case PowerUpType::SlowMotion:
+                            name = "SlowMo"; color = sf::Color(180, 100, 255); break;
+                        case PowerUpType::DoubleScore:
+                            name = "Double"; color = sf::Color(255, 215, 0); break;
+                        case PowerUpType::Magnet:
+                            name = "Magnet"; color = sf::Color(255, 100, 150); break;
+                        case PowerUpType::UnlimitedBullets:
+                            name = "Unlimited"; color = sf::Color(80, 220, 255); break;
+                        default: name = "Power"; color = sf::Color::White;
+                    }
+                    hud->addPowerUp(name, color, effect.maxTime);
                 }
-                hud->addPowerUp(name, color, effect.maxTime);
+                hud->showToast("Power-Up!", Constants::UI_ACCENT);
             }
-            hud->showToast("Power-Up!", Constants::UI_ACCENT);
         }
 
         // Check coin collection
@@ -689,8 +819,16 @@ void Game::update(float dt) {
         comboSystem->clearMilestoneFlag();
     }
 
-    // Update difficulty
-    obstacleBaseSpeed = std::min(obstacleBaseSpeed + dt * Constants::DIFFICULTY_RAMP_RATE, Constants::MAX_OBSTACLE_SPEED);
+    // Update difficulty with smoother progression (slower early ramp, faster later ramp)
+    constexpr float BASE_OBSTACLE_SPEED = 344.0f;   // 20% slower initial speed
+    constexpr float TIME_TO_MAX_DIFFICULTY = 150.0f;  // Seconds to reach top speed
+    float progress = std::min(runTime / TIME_TO_MAX_DIFFICULTY, 1.0f);
+    float easedProgress = progress * progress;
+    float targetSpeed = BASE_OBSTACLE_SPEED +
+        (Constants::MAX_OBSTACLE_SPEED - BASE_OBSTACLE_SPEED) * easedProgress;
+
+    // Keep per-frame speed changes smooth even when the target shifts.
+    obstacleBaseSpeed = std::min(targetSpeed, obstacleBaseSpeed + dt * Constants::DIFFICULTY_RAMP_RATE);
 
     // Update visual systems
     particleSystem->update(dt);
@@ -702,6 +840,7 @@ void Game::update(float dt) {
     hud->setCombo(comboSystem->getComboCount(), comboSystem->getMultiplier());
     hud->setSpeed(obstacleBaseSpeed, Constants::MAX_OBSTACLE_SPEED);
     hud->setDistance(distanceTraveled);
+    hud->setAmmo(projectileManager->getAmmo(), projectileManager->getMaxAmmo(), projectileManager->hasUnlimitedAmmo());
     hud->update(dt);
 
     // Update power-up display in HUD
@@ -712,10 +851,18 @@ void Game::update(float dt) {
             case PowerUpType::SlowMotion: name = "SlowMo"; break;
             case PowerUpType::DoubleScore: name = "Double"; break;
             case PowerUpType::Magnet: name = "Magnet"; break;
+            case PowerUpType::UnlimitedBullets: name = "Unlimited"; break;
             default: name = "Power";
         }
         hud->updatePowerUp(name, effect.remainingTime);
     }
+
+    // Parkour landing detection
+    checkParkourLanding();
+
+    // Assignment vs bullet and player
+    checkAssignmentBulletCollision();
+    checkAssignmentPlayerCollision();
 
     // Check collision
     if (checkObstacleCollision()) {
@@ -736,6 +883,19 @@ void Game::update(float dt) {
     checkAchievements();
 
     previousState = currentState;
+}
+
+void Game::updateGameplayMusic() {
+    const bool shouldPlay = (currentState == GameState::Play && !gameOver);
+    const auto status = gameplayMusic.getStatus();
+
+    if (shouldPlay) {
+        if (status != sf::SoundSource::Playing) {
+            gameplayMusic.play();
+        }
+    } else if (status == sf::SoundSource::Playing) {
+        gameplayMusic.pause();
+    }
 }
 
 void Game::handleGameOver() {
@@ -765,6 +925,242 @@ void Game::handleGameOver() {
     // Check end-of-run achievements
     if (achievementSystem) {
         achievementSystem->onRunComplete(score, coinsThisRun, obstaclesDodged, comboSystem->getComboCount());
+    }
+}
+
+void Game::checkParkourLanding() {
+    if (!player) return;
+
+    sf::FloatRect pBounds = player->getBoundsScreen();
+    float playerBottom = pBounds.top + pBounds.height;
+
+    for (auto& obstacle : obstacles) {
+        if (!obstacle.physBody) continue;   // Only bench/chair are platforms
+        if (obstacle.passed) continue;
+
+        sf::FloatRect oBounds = obstacle.sprite.getGlobalBounds();
+
+        // Horizontal overlap check — is the player above this obstacle?
+        bool hOverlap = (pBounds.left + pBounds.width > oBounds.left) &&
+                        (pBounds.left < oBounds.left + oBounds.width);
+        if (!hOverlap) {
+            // No longer over it — clear flag
+            obstacle.playerOnTop = false;
+            continue;
+        }
+
+        // Player is standing with feet at obstacle top surface (within 18px tolerance)
+        bool onTopNow = player->isOnGround() &&
+                        (playerBottom >= oBounds.top - 5.0f) &&
+                        (playerBottom < oBounds.top + 18.0f);
+
+        if (onTopNow && !obstacle.playerOnTop) {
+            // Just landed on the obstacle — trigger parkour effects
+            obstacle.playerOnTop = true;
+
+            // Small upward vault bounce so the player pops off the surface
+            b2Body* pb = player->getBody();
+            b2Vec2 vel = pb->GetLinearVelocity();
+            vel.y += 5.5f;
+            pb->SetLinearVelocity(vel);
+
+            // Visual / score feedback
+            screenEffects->triggerShake(4.0f);
+            screenEffects->triggerFlash(sf::Color(255, 220, 80, 60), 0.1f);
+            score += 30.0f * powerUpManager->getScoreMultiplier();
+            hud->triggerScorePopup("PARKOUR! +30",
+                sf::Vector2f(laneX + 60.0f, oBounds.top - 30.0f));
+            comboSystem->registerDodge();
+        }
+        else if (!onTopNow) {
+            obstacle.playerOnTop = false;
+        }
+    }
+}
+
+void Game::updateProfessors(float dt) {
+    if (!player) return;
+
+    sf::Texture& profTex = assets->get<sf::Texture>(AssetKeys::OBSTACLE_PROFESSOR);
+    sf::Vector2u ts = profTex.getSize();
+    int fw = static_cast<int>(ts.x) / RunnerObstacle::PROF_COLS;
+    int fh = static_cast<int>(ts.y) / RunnerObstacle::PROF_ROWS;
+
+    float timeScale = powerUpManager->getSlowMoFactor();
+
+    for (auto& obs : obstacles) {
+        if (obs.type != ObstacleType::Professor) continue;
+
+        // --- Dying (disappear) animation ---
+        if (obs.dying) {
+            obs.dyingTimer += dt;
+            float t = obs.dyingTimer / RunnerObstacle::DYING_DURATION;  // 0→1
+            sf::Uint8 alpha = static_cast<sf::Uint8>(255 * (1.0f - t));
+            obs.sprite.setColor(sf::Color(255, 200, 100, alpha));
+            // Spin during disappear
+            obs.sprite.setRotation(obs.sprite.getRotation() + 400.0f * dt);
+            // Scale up slightly as they vanish
+            float s = 0.55f * (1.0f + t * 0.4f);
+            obs.sprite.setScale(s, s);
+            continue;  // Don't animate frames or throw while dying
+        }
+
+        // --- Spritesheet frame animation ---
+        obs.profFrameTimer += dt * timeScale;
+        if (obs.profFrameTimer >= RunnerObstacle::PROF_FRAME_TIME) {
+            obs.profFrameTimer -= RunnerObstacle::PROF_FRAME_TIME;
+            obs.profFrame = (obs.profFrame + 1) % RunnerObstacle::PROF_FRAME_COUNT;
+        }
+        int col = obs.profFrame % RunnerObstacle::PROF_COLS;
+        int row = obs.profFrame / RunnerObstacle::PROF_COLS;
+        obs.sprite.setTextureRect(sf::IntRect(col * fw, row * fh, fw, fh));
+
+        // --- Throw assignment projectile (max 3 total) ---
+        if (obs.assignmentsThrown < RunnerObstacle::PROF_MAX_THROWS && !obs.passed) {
+            obs.profThrowTimer -= dt * timeScale;
+            if (obs.profThrowTimer <= 0.0f) {
+                obs.profThrowTimer = RunnerObstacle::PROF_THROW_DELAY;
+                obs.assignmentsThrown++;
+
+                sf::FloatRect pb = obs.sprite.getGlobalBounds();
+                Assignment asgn;
+                asgn.position      = sf::Vector2f(pb.left, pb.top + pb.height * 0.35f);
+                sf::Vector2f playerPos = player->getScreenPosition();
+                sf::Vector2f dir   = playerPos - asgn.position;
+                float len = std::sqrt(dir.x * dir.x + dir.y * dir.y);
+                if (len > 1.0f) dir /= len;
+                asgn.velocity      = dir * obs.speed * 1.6f;
+                asgn.rotation      = 0.0f;
+                asgn.rotationSpeed = 280.0f;
+                asgn.hitPoints     = 2;
+                asgn.active        = true;
+                asgn.animTimer     = 0.0f;
+                asgn.currentFrame  = 0;
+                asgn.owner         = &obs;
+                assignments.push_back(asgn);
+            }
+        }
+
+        // Dying is triggered immediately in checkAssignmentBulletCollision
+    }
+
+    // Erase fully-faded dying professors
+    obstacles.erase(
+        std::remove_if(obstacles.begin(), obstacles.end(), [](const RunnerObstacle& o) {
+            return o.type == ObstacleType::Professor && o.dying &&
+                   o.dyingTimer >= RunnerObstacle::DYING_DURATION;
+        }),
+        obstacles.end()
+    );
+}
+
+void Game::updateAssignments(float dt) {
+    float timeScale = powerUpManager->getSlowMoFactor();
+
+    for (auto& a : assignments) {
+        if (!a.active) continue;
+        a.position += a.velocity * dt * timeScale;
+        a.rotation += a.rotationSpeed * dt * timeScale;
+
+        // Animate frames (use book texture as spinning paper)
+        a.animTimer += dt;
+        if (a.animTimer >= Assignment::FRAME_TIME) {
+            a.animTimer -= Assignment::FRAME_TIME;
+            a.currentFrame = (a.currentFrame + 1) % Assignment::MAX_FRAME;
+        }
+
+        // Deactivate when off the left edge
+        if (a.position.x < -80.0f) a.active = false;
+    }
+
+    assignments.remove_if([](const Assignment& a) { return !a.active; });
+}
+
+void Game::checkAssignmentPlayerCollision() {
+    if (!player || player->isInvulnerable()) return;
+
+    sf::FloatRect pBounds = player->getBoundsScreen();
+    pBounds.left   += pBounds.width  * 0.22f;
+    pBounds.top    += pBounds.height * 0.12f;
+    pBounds.width  *= 0.56f;
+    pBounds.height *= 0.78f;
+
+    for (auto& a : assignments) {
+        if (!a.active) continue;
+        sf::FloatRect aBounds(a.position.x - 20.0f, a.position.y - 20.0f, 40.0f, 40.0f);
+        if (pBounds.intersects(aBounds)) {
+            a.active = false;
+            if (powerUpManager->hasShield()) {
+                powerUpManager->consumeShield();
+                hud->removePowerUp("Shield");
+                screenEffects->triggerShake(6.0f);
+                screenEffects->triggerFlash(sf::Color(100, 180, 255, 100), 0.12f);
+                hud->showToast("Shield blocked assignment!", sf::Color(100, 180, 255));
+                player->setInvulnerable(0.5f);
+            } else {
+                handleGameOver();
+            }
+        }
+    }
+}
+
+void Game::checkAssignmentBulletCollision() {
+    auto& projectiles = projectileManager->getProjectilesMutable();
+
+    for (auto& proj : projectiles) {
+        if (!proj.active) continue;
+        for (auto& a : assignments) {
+            if (!a.active) continue;
+            sf::FloatRect aBounds(a.position.x - 22.0f, a.position.y - 22.0f, 44.0f, 44.0f);
+            if (!aBounds.contains(proj.position)) continue;
+
+            proj.active = false;
+            a.hitPoints--;
+
+            screenEffects->triggerShake(2.5f);
+            particleSystem->spawnPaperDestruction(a.position);
+
+            if (a.hitPoints <= 0) {
+                a.active = false;
+                score += 25.0f * powerUpManager->getScoreMultiplier();
+                hud->triggerScorePopup("BLOCKED! +25", a.position);
+
+                // Large paper-burst at assignment position
+                particleSystem->spawnPaperDestruction(a.position);
+                screenEffects->triggerFlash(sf::Color(255, 240, 100, 120), 0.12f);
+
+                // Immediately trigger professor disappear animation
+                RunnerObstacle* prof = a.owner;
+                if (prof && !prof->dying) {
+                    prof->dying      = true;
+                    // Set timer past DYING_DURATION so updateProfessors erases it next frame
+                    prof->dyingTimer = RunnerObstacle::DYING_DURATION + 1.0f;
+
+                    // Hide the professor sprite immediately
+                    prof->sprite.setColor(sf::Color(0, 0, 0, 0));
+
+                    // Burst effects at professor position
+                    sf::FloatRect gb = prof->sprite.getGlobalBounds();
+                    sf::Vector2f profCentre(gb.left + gb.width * 0.5f,
+                                           gb.top  + gb.height * 0.5f);
+                    particleSystem->spawnExplosion(profCentre, sf::Color(255, 220, 60), 40);
+                    particleSystem->spawnPaperDestruction(profCentre);
+                    particleSystem->spawnExplosion(profCentre, sf::Color(255, 255, 200), 20);
+
+                    screenEffects->triggerShake(8.0f);
+                    screenEffects->triggerFlash(sf::Color(255, 200, 50, 180), 0.20f);
+
+                    int bonus = static_cast<int>(100.0f * powerUpManager->getScoreMultiplier());
+                    score += bonus;
+                    hud->triggerScorePopup("Professor fled! +" + std::to_string(bonus), profCentre);
+                    hud->showToast("Professor expelled!", sf::Color(255, 200, 100));
+                    comboSystem->registerDodge();
+                }
+            } else {
+                hud->triggerScorePopup("HIT!", a.position);
+            }
+            break;
+        }
     }
 }
 
@@ -826,6 +1222,20 @@ void Game::render() {
     trackLine[1].color = sf::Color(130, 145, 168);
     window.draw(trackLine);
 
+    // Jump ceiling guide — subtle dashed line so the player can read the limit
+    float ceilingY = winH * 0.28f;
+    constexpr float DASH_LEN = 24.0f;
+    constexpr float GAP_LEN  = 18.0f;
+    sf::Color ceilColor(80, 120, 200, 55);
+    for (float x = 0.0f; x < winW; x += DASH_LEN + GAP_LEN) {
+        sf::VertexArray dash(sf::Lines, 2);
+        dash[0].position = sf::Vector2f(x, ceilingY);
+        dash[0].color    = ceilColor;
+        dash[1].position = sf::Vector2f(std::min(x + DASH_LEN, winW), ceilingY);
+        dash[1].color    = ceilColor;
+        window.draw(dash);
+    }
+
     // Draw player shadow
     if (player) {
         sf::FloatRect pBounds = player->getBoundsScreen();
@@ -863,6 +1273,22 @@ void Game::render() {
         
         // Reset color if it was flashed from being hit
         const_cast<RunnerObstacle&>(obstacle).sprite.setColor(sf::Color::White);
+    }
+
+    // Draw assignment projectiles (thrown by professor)
+    {
+        sf::Texture& asgnTex = assets->get<sf::Texture>(AssetKeys::ASSIGNMENT);
+        sf::Sprite asgnSprite(asgnTex);
+        sf::Vector2u ts = asgnTex.getSize();
+        asgnSprite.setOrigin(ts.x * 0.5f, ts.y * 0.5f);
+        asgnSprite.setScale(0.22f, 0.22f);   // Large, readable projectile
+        for (const auto& a : assignments) {
+            if (!a.active) continue;
+            asgnSprite.setColor(sf::Color::White);
+            asgnSprite.setPosition(a.position);
+            asgnSprite.setRotation(a.rotation);
+            window.draw(asgnSprite);
+        }
     }
 
     // Draw projectiles (bullets)
@@ -1084,7 +1510,9 @@ void Game::handleShooting() {
         sf::Vector2f mousePos = inputManager.getMousePosition();
         
         // Fire bullet from player center toward mouse
-        projectileManager->fire(playerPos, mousePos);
+        if (projectileManager->fire(playerPos, mousePos)) {
+            bulletSound.play();
+        }
     }
 }
 
@@ -1100,7 +1528,9 @@ void Game::checkProjectileCollisions() {
 
         // Check collision with each obstacle
         for (auto& obstacle : obstacles) {
-            if (obstacle.hitPoints <= 0) continue;  // Already destroyed
+            if (obstacle.hitPoints <= 0) continue;
+            // Professor cannot be shot directly — destroy its assignments instead
+            if (obstacle.type == ObstacleType::Professor) continue;
 
             sf::FloatRect obstacleBounds = obstacle.sprite.getGlobalBounds();
             
@@ -1140,46 +1570,50 @@ void Game::checkProjectileCollisions() {
                     case ObstacleType::ExamStack:
                         explosionColor = sf::Color(240, 240, 230); // White paper
                         break;
-                    case ObstacleType::CoffeeCart:
-                        explosionColor = sf::Color(70, 50, 30);    // Coffee brown
-                        break;
                     default:
                         explosionColor = sf::Color(150, 130, 100);
                 }
 
                 if (obstacle.hitPoints <= 0) {
-                    // Obstacle destroyed - spawn type-specific destruction effect!
-                    switch (obstacle.type) {
-                        case ObstacleType::Chair:
-                        case ObstacleType::Bench:
-                        case ObstacleType::CoffeeCart:
-                            // Wood destruction - splinters and chunks
-                            particleSystem->spawnWoodDestruction(obstacleCenter);
-                            break;
-                        case ObstacleType::Book:
-                        case ObstacleType::ExamStack:
-                            // Paper destruction - fluttering pages
-                            particleSystem->spawnPaperDestruction(obstacleCenter);
-                            break;
-                        default:
-                            // Generic explosion
-                            particleSystem->spawnExplosion(obstacleCenter, explosionColor, 30);
-                            break;
+                    // Obstacle destroyed
+                    if (obstacle.type == ObstacleType::Professor) {
+                        // Professor: start disappear animation instead of instant removal
+                        obstacle.dying = true;
+                        obstacle.dyingTimer = 0.0f;
+                        // Reset rotation origin to sprite centre
+                        sf::FloatRect lb = obstacle.sprite.getLocalBounds();
+                        obstacle.sprite.setOrigin(lb.width * 0.5f, lb.height * 0.5f);
+                        screenEffects->triggerShake(6.0f);
+                        screenEffects->triggerFlash(sf::Color(255, 200, 80, 100), 0.15f);
+                        particleSystem->spawnExplosion(obstacleCenter, sf::Color(255, 220, 60), 25);
+                    } else {
+                        switch (obstacle.type) {
+                            case ObstacleType::Chair:
+                            case ObstacleType::Bench:
+                                particleSystem->spawnWoodDestruction(obstacleCenter);
+                                break;
+                            case ObstacleType::Book:
+                            case ObstacleType::ExamStack:
+                                particleSystem->spawnPaperDestruction(obstacleCenter);
+                                break;
+                            default:
+                                particleSystem->spawnExplosion(obstacleCenter, explosionColor, 30);
+                                break;
+                        }
                     }
 
                     // Give bonus points
-                    int destroyBonus = 50;
+                    int destroyBonus = (obstacle.type == ObstacleType::Professor) ? 100 : 50;
                     float scoreMultiplier = powerUpManager->getScoreMultiplier();
                     int finalBonus = static_cast<int>(destroyBonus * scoreMultiplier);
                     score += finalBonus;
 
-                    // Show destruction popup
                     hud->triggerScorePopup("DESTROYED! +" + std::to_string(finalBonus),
-                        sf::Vector2f(obstacle.sprite.getPosition().x, 
+                        sf::Vector2f(obstacle.sprite.getPosition().x,
                                      obstacle.sprite.getPosition().y - 50.0f));
-                    hud->showToast("Object destroyed!", sf::Color(255, 200, 100));
+                    hud->showToast(obstacle.type == ObstacleType::Professor
+                        ? "Professor expelled!" : "Object destroyed!", sf::Color(255, 200, 100));
 
-                    // Bigger screen shake for destruction
                     screenEffects->triggerShake(8.0f);
                     screenEffects->triggerFlash(sf::Color(255, 200, 100, 80), 0.1f);
                 } else {
@@ -1197,10 +1631,11 @@ void Game::checkProjectileCollisions() {
         }
     }
 
-    // Remove destroyed obstacles
+    // Remove non-professor destroyed obstacles immediately.
+    // Professors stay in the list while their dying animation plays (updateProfessors erases them).
     obstacles.erase(
         std::remove_if(obstacles.begin(), obstacles.end(), [](const RunnerObstacle& o) {
-            return o.hitPoints <= 0;
+            return o.hitPoints <= 0 && o.type != ObstacleType::Professor;
         }),
         obstacles.end()
     );

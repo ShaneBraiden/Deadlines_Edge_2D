@@ -59,6 +59,10 @@ public:
     b2Body* createStaticBody(float centerX, float centerY,
                              float halfWidth, float halfHeight);
 
+    b2Body* createKinematicBody(float centerX, float centerY,
+                                float halfWidth, float halfHeight,
+                                float friction = 0.4f);
+
     // Attach a sensor fixture to an existing body
     void addSensorFixture(b2Body* body, float halfWidth, float halfHeight,
                           const b2Vec2& offset, uintptr_t userData);

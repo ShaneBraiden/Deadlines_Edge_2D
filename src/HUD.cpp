@@ -11,6 +11,9 @@ HUD::HUD(sf::RenderWindow& window, AssetManager* assets)
     , targetScore(0.0f)
     , bestScore(0.0f)
     , coins(0)
+    , ammoCount(0)
+    , maxAmmo(0)
+    , unlimitedAmmo(false)
     , combo(0)
     , comboMultiplier(1.0f)
     , distance(0.0f)
@@ -77,6 +80,7 @@ void HUD::render(sf::RenderWindow& window, sf::Font& font) {
     renderDamageOverlay();
     renderScore();
     renderCoins();
+    renderAmmo();
     renderCombo();
     renderSpeed();
     renderDistance();
@@ -95,6 +99,12 @@ void HUD::setBestScore(float best) {
 
 void HUD::setCoins(int c) {
     coins = c;
+}
+
+void HUD::setAmmo(int count, int max, bool unlimited) {
+    ammoCount = std::max(0, count);
+    maxAmmo = std::max(0, max);
+    unlimitedAmmo = unlimited;
 }
 
 void HUD::setCombo(int c, float mult) {
@@ -250,6 +260,43 @@ void HUD::renderCoins() {
     coinIcon.setFillColor(Constants::UI_SECONDARY);
     coinIcon.setPosition(winW - Constants::HUD_MARGIN - 25.0f, Constants::HUD_MARGIN + 10.0f);
     window.draw(coinIcon);
+}
+
+void HUD::renderAmmo() {
+    sf::Font& font = assets->get<sf::Font>(AssetKeys::MAIN_FONT);
+
+    sf::RectangleShape panel;
+    panel.setSize(sf::Vector2f(220.0f, 56.0f));
+    panel.setFillColor(sf::Color(0, 0, 0, 120));
+    panel.setPosition(Constants::HUD_MARGIN, Constants::HUD_MARGIN + 165.0f);
+    window.draw(panel);
+
+    sf::Text label;
+    label.setFont(font);
+    label.setString("AMMO");
+    label.setCharacterSize(14);
+    label.setFillColor(Constants::UI_TEXT_DIM);
+    label.setPosition(Constants::HUD_MARGIN + 10.0f, Constants::HUD_MARGIN + 170.0f);
+    window.draw(label);
+
+    sf::Text value;
+    value.setFont(font);
+    value.setCharacterSize(Constants::HUD_FONT_SIZE_MEDIUM);
+    value.setFillColor(unlimitedAmmo ? Constants::UI_SECONDARY : Constants::UI_TEXT_LIGHT);
+    value.setStyle(sf::Text::Bold);
+    if (unlimitedAmmo) {
+        value.setString("INF");
+    } else {
+        value.setString(std::to_string(ammoCount) + "/" + std::to_string(maxAmmo));
+    }
+    value.setPosition(Constants::HUD_MARGIN + 10.0f, Constants::HUD_MARGIN + 186.0f);
+    window.draw(value);
+
+    sf::CircleShape bulletIcon(6.0f);
+    bulletIcon.setFillColor(unlimitedAmmo ? Constants::UI_SECONDARY : sf::Color(245, 245, 245));
+    bulletIcon.setOrigin(6.0f, 6.0f);
+    bulletIcon.setPosition(Constants::HUD_MARGIN + 170.0f, Constants::HUD_MARGIN + 192.0f);
+    window.draw(bulletIcon);
 }
 
 void HUD::renderCombo() {

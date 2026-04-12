@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cmake --build build --config Release)",
+      "Bash(cmake -B build -S . -DCMAKE_TOOLCHAIN_FILE=\"c:/vcpkg/scripts/buildsystems/vcpkg.cmake\")",
+      "Bash(taskkill /F /IM DeadlinesEdge.exe)",
+      "Bash(cmd /c \"taskkill /F /IM DeadlinesEdge.exe\")",
+      "Bash(cmd /c \"cd /d C:\\\\Shane\\\\Deadlines_Edge_2D && cmake --build build --config Release 2>&1\")",
+      "Bash(cmd /c \"taskkill /F /IM DeadlinesEdge.exe & cd /d C:\\\\Shane\\\\Deadlines_Edge_2D && cmake --build build --config Release\")",
+      "Bash(cmd /c \"taskkill /F /IM DeadlinesEdge.exe 2>nul & exit 0\")",
+      "Bash(cmd /c \"wmic process where name='DeadlinesEdge.exe' get processid\")",
+      "Bash(cmd /c \"del /F C:\\\\Shane\\\\Deadlines_Edge_2D\\\\build\\\\Release\\\\DeadlinesEdge.exe && echo deleted\")"
+    ]
+  }
+}

@@ -1,6 +1,8 @@
 #pragma once
 
 #include <SFML/Graphics.hpp>
+#include <SFML/Audio.hpp>
+#include <list>
 #include <vector>
 #include <string>
 #include <random>
@@ -51,6 +53,7 @@ private:
     void processEvents();
     void update(float dt);
     void render();
+    void updateGameplayMusic();
 
     // Menu/ending rendering
     void renderMenu();
@@ -64,6 +67,11 @@ private:
     void updateCombo(float dt);
     void checkAchievements();
     void handleGameOver();
+    void checkParkourLanding();
+    void updateProfessors(float dt);
+    void updateAssignments(float dt);
+    void checkAssignmentPlayerCollision();
+    void checkAssignmentBulletCollision();
 
     // Obstacle types
     enum class ObstacleType {
@@ -71,8 +79,7 @@ private:
         Bench,
         Book,
         Professor,  // New: slow-moving, must jump
-        ExamStack,  // New: tall stack, must duck
-        CoffeeCart  // New: wide, must jump high
+        ExamStack   // New: tall stack, must duck
     };
 
     // Shooting system
@@ -80,14 +87,49 @@ private:
     void updateProjectiles(float dt);
     void checkProjectileCollisions();
 
+    struct RunnerObstacle;  // forward declare so Assignment can point back
+
+    // Assignment projectile thrown by the professor
+    struct Assignment {
+        sf::Vector2f position;
+        sf::Vector2f velocity;
+        float rotation;
+        float rotationSpeed;
+        int hitPoints;              // 2 hits to destroy with pen
+        bool active;
+        float animTimer;
+        int currentFrame;
+        RunnerObstacle* owner;      // Which professor threw this (nullptr = none)
+        static constexpr int MAX_FRAME = 4;
+        static constexpr float FRAME_TIME = 0.12f;
+    };
+
     struct RunnerObstacle {
         sf::Sprite sprite;
         float speed;
         bool passed;
         ObstacleType type;
-        float animTimer;  // For animated obstacles
-        int hitPoints;    // Health: destroyed when reaches 0
-        static constexpr int DEFAULT_HIT_POINTS = 2;  // Takes 2 hits to destroy
+        float animTimer;        // General animation timer
+        int hitPoints;          // Health: destroyed when reaches 0
+        b2Body* physBody;       // Kinematic body for bench/chair platforms (nullptr otherwise)
+        bool playerOnTop;       // True when player is standing on this obstacle
+
+        // Professor-specific
+        int   profFrame;             // Current spritesheet frame (0-7)
+        float profFrameTimer;        // Time since last frame change
+        float profThrowTimer;        // Countdown until next assignment throw
+        int   assignmentsThrown;     // Total thrown so far (max 3)
+        int   assignmentsDestroyed;  // How many of its own assignments were destroyed
+        bool  dying;                 // Playing disappear animation
+        float dyingTimer;            // 0 → DYING_DURATION then erased
+        static constexpr int   PROF_COLS              = 4;
+        static constexpr int   PROF_ROWS              = 2;
+        static constexpr int   PROF_FRAME_COUNT       = 8;
+        static constexpr float PROF_FRAME_TIME        = 0.10f;
+        static constexpr float PROF_THROW_DELAY       = 2.2f;
+        static constexpr int   PROF_MAX_THROWS        = 1;
+        static constexpr float DYING_DURATION         = 0.55f;
+        static constexpr int   DEFAULT_HIT_POINTS     = 2;
     };
 
     sf::RenderWindow window;
@@ -142,10 +184,21 @@ private:
     int obstaclesDodged;
     int coinsThisRun;
     float distanceTraveled;
+    float nextAmmoDropDistance;
 
     // Vignette overlay
     sf::RectangleShape vignetteTop;
     sf::RectangleShape vignetteBottom;
     sf::RectangleShape vignetteLeft;
     sf::RectangleShape vignetteRight;
+
+    // Assignment projectiles thrown by professors
+    std::list<Assignment> assignments;
+
+    // Main gameplay music (assets/audio/main.mp3)
+    sf::Music gameplayMusic;
+
+    // Bullet/pen sound effect
+    sf::SoundBuffer bulletSoundBuffer;
+    sf::Sound       bulletSound;
 };

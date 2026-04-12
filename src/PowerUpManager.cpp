@@ -49,7 +49,7 @@ void PowerUpManager::spawnRandomPowerUp(float x, float y, float speed, std::mt19
     spawnPowerUp(type, x, y, speed);
 }
 
-bool PowerUpManager::checkCollection(const sf::FloatRect& playerBounds) {
+bool PowerUpManager::checkCollection(const sf::FloatRect& playerBounds, PowerUpType* collectedType) {
     for (size_t i = 0; i < powerUps.size(); ++i) {
         if (powerUps[i].collected) continue;
 
@@ -61,6 +61,9 @@ bool PowerUpManager::checkCollection(const sf::FloatRect& playerBounds) {
         );
 
         if (playerBounds.intersects(powerUpBounds)) {
+            if (collectedType) {
+                *collectedType = powerUps[i].type;
+            }
             collectPowerUp(i);
             return true;
         }
@@ -73,7 +76,18 @@ void PowerUpManager::collectPowerUp(size_t index) {
 
     PowerUp& pu = powerUps[index];
     pu.collected = true;
-    activatePowerUp(pu.type);
+
+    switch (pu.type) {
+        case PowerUpType::Shield:
+        case PowerUpType::SlowMotion:
+        case PowerUpType::DoubleScore:
+        case PowerUpType::Magnet:
+        case PowerUpType::UnlimitedBullets:
+            activatePowerUp(pu.type);
+            break;
+        case PowerUpType::Ammo:
+            break;
+    }
 }
 
 void PowerUpManager::render(sf::RenderWindow& window) {
@@ -154,6 +168,22 @@ void PowerUpManager::render(sf::RenderWindow& window) {
                 bottom.setFillColor(sf::Color::White);
                 bottom.setPosition(pu.position.x - 7.0f, y + 3.0f);
                 window.draw(bottom);
+                break;
+            }
+            case PowerUpType::Ammo: {
+                sf::RectangleShape body(sf::Vector2f(18.0f, 12.0f));
+                body.setFillColor(sf::Color::White);
+                body.setOrigin(9.0f, 6.0f);
+                body.setPosition(pu.position.x, y);
+                window.draw(body);
+                break;
+            }
+            case PowerUpType::UnlimitedBullets: {
+                sf::CircleShape inner(8.0f, 3);
+                inner.setFillColor(sf::Color::White);
+                inner.setOrigin(8.0f, 8.0f);
+                inner.setPosition(pu.position.x, y);
+                window.draw(inner);
                 break;
             }
             default:
@@ -239,6 +269,8 @@ sf::Color PowerUpManager::getColor(PowerUpType type) const {
         case PowerUpType::SlowMotion:  return sf::Color(180, 100, 255);   // Purple
         case PowerUpType::DoubleScore: return sf::Color(255, 215, 0);     // Gold
         case PowerUpType::Magnet:      return sf::Color(255, 100, 150);   // Pink
+        case PowerUpType::Ammo:        return sf::Color(245, 245, 245);   // White
+        case PowerUpType::UnlimitedBullets: return sf::Color(80, 220, 255); // Cyan
         default:                       return sf::Color::White;
     }
 }
@@ -249,6 +281,8 @@ std::string PowerUpManager::getName(PowerUpType type) const {
         case PowerUpType::SlowMotion:  return "SlowMo";
         case PowerUpType::DoubleScore: return "Double";
         case PowerUpType::Magnet:      return "Magnet";
+        case PowerUpType::Ammo:        return "Ammo";
+        case PowerUpType::UnlimitedBullets: return "Unlimited";
         default:                       return "Unknown";
     }
 }
@@ -259,6 +293,8 @@ float PowerUpManager::getDuration(PowerUpType type) const {
         case PowerUpType::SlowMotion:  return Constants::POWERUP_SLOWMO_DURATION;
         case PowerUpType::DoubleScore: return Constants::POWERUP_DOUBLESCORE_DURATION;
         case PowerUpType::Magnet:      return Constants::POWERUP_MAGNET_DURATION;
+        case PowerUpType::Ammo:        return 0.0f;
+        case PowerUpType::UnlimitedBullets: return Constants::POWERUP_UNLIMITED_BULLETS_DURATION;
         default:                       return 5.0f;
     }
 }

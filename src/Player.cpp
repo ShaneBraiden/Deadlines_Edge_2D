@@ -16,6 +16,9 @@ Player::Player(PhysicsWorld* physics, float startX, float startY, sf::Texture& s
     , hitReactionTimer(0.0f)
     , flashTimer(0.0f)
     , flashVisible(true)
+    , runBobTimer(0.0f)
+    , landSquashTimer(0.0f)
+    , wasOnGround(false)
 {
     float halfW = Constants::PLAYER_WIDTH / 2.0f;
     float halfH = Constants::PLAYER_HEIGHT / 2.0f;
@@ -66,12 +69,11 @@ Player::Player(PhysicsWorld* physics, float startX, float startY, sf::Texture& s
     sprite.setOrigin(frameSize.x / 2.0f, frameSize.y / 2.0f);
 
     // Register animations (row, frameCount, frameSize, frameDuration)
-    animator.addAnimation("idle", Animation(0, 6, frameSize, 0.15f));
-    animator.addAnimation("run",  Animation(1, 8, frameSize, 0.08f));
-    animator.addAnimation("jump", Animation(2, 3, frameSize, 0.12f));
-    animator.addAnimation("fall", Animation(3, 3, frameSize, 0.10f));
-    // Hit and stumble reuse existing frames for now
-    animator.addAnimation("hit",  Animation(3, 2, frameSize, 0.15f));
+    animator.addAnimation("idle",    Animation(0, 6, frameSize, 0.14f));
+    animator.addAnimation("run",     Animation(1, 8, frameSize, 0.065f)); // snappier stride
+    animator.addAnimation("jump",    Animation(2, 3, frameSize, 0.10f));
+    animator.addAnimation("fall",    Animation(3, 3, frameSize, 0.09f));
+    animator.addAnimation("hit",     Animation(3, 2, frameSize, 0.15f));
     animator.addAnimation("stumble", Animation(1, 4, frameSize, 0.10f));
     animator.play("idle");
 }
@@ -111,18 +113,21 @@ void Player::handleInput(const InputManager& input) {
     bool jumpKeyDown = input.isKeyPressed(sf::Keyboard::Space) ||
                        input.isKeyPressed(sf::Keyboard::W) ||
                        input.isKeyPressed(sf::Keyboard::Up);
-    bool isDoubleClick = input.isSpaceBarDoubleClicked();
 
-    if (jumpKeyDown || isDoubleClick) {
+    if (jumpKeyDown) {
         // Allow jump if on ground OR if vertical velocity is very low (coyote-time-like fallback)
         b2Vec2 currentVel = body->GetLinearVelocity();
         bool canJump = isOnGround() || (std::abs(currentVel.y) < 0.5f);
 
         if (canJump) {
-            // Double-click gives a higher jump (+50%)
-            float jumpMultiplier = isDoubleClick ? 1.5f : 1.0f;
-            float impulse = Constants::PLAYER_JUMP_IMPULSE * jumpMultiplier * body->GetMass();
+            float impulse = Constants::PLAYER_JUMP_IMPULSE * Constants::PLAYER_JUMP_HEIGHT_MULTIPLIER * body->GetMass();
             body->ApplyLinearImpulseToCenter(b2Vec2(0.0f, impulse), true);
+
+            if (runnerModeEnabled) {
+                b2Vec2 launchVel = body->GetLinearVelocity();
+                launchVel.x = Constants::PLAYER_MOVE_SPEED * Constants::PLAYER_JUMP_DISTANCE_MULTIPLIER;
+                body->SetLinearVelocity(launchVel);
+            }
         }
         else if (!runnerModeEnabled && isTouchingWall()) {
             // Wall jump — push away from wall and upward
@@ -164,6 +169,33 @@ void Player::update(float dt) {
         }
     } else {
         flashVisible = true;
+    }
+
+    // Landing squash detection
+    bool onGround = isOnGround();
+    if (onGround && !wasOnGround) {
+        landSquashTimer = 0.18f;  // Duration of squash+stretch pop
+    }
+    wasOnGround = onGround;
+
+    // Advance timers
+    if (landSquashTimer > 0.0f) landSquashTimer -= dt;
+    if (onGround) runBobTimer += dt;
+    else          runBobTimer = 0.0f;  // Reset bob when airborne so it restarts clean
+
+    // Variable jump gravity: lighter on ascent (floaty arc) → heavier on descent (snappy landing)
+    // This extends hang time so the jump feels like it covers more distance.
+    if (!onGround) {
+        b2Vec2 vel = body->GetLinearVelocity();
+        if (vel.y > 0.2f) {
+            // Rising — use reduced gravity scale for a longer, floatier arc
+            body->SetGravityScale(0.55f);
+        } else {
+            // Falling — restore full gravity so landing feels crisp
+            body->SetGravityScale(1.0f);
+        }
+    } else {
+        body->SetGravityScale(1.0f);
     }
 
     // Update hit reaction
@@ -238,15 +270,57 @@ void Player::updateAnimState() {
     if (vel.x > 0.1f)       facingRight = true;
     else if (vel.x < -0.1f) facingRight = false;
 
-    // Scale sprite so its height matches the physics body's pixel height
+    // Base scale: match physics body pixel height
     float physPixelH = Constants::PLAYER_HEIGHT * Constants::PPM;
-    float scaleY = physPixelH / static_cast<float>(frameSize.y);
-    // Squash vertically when ducking
+    float baseScale = physPixelH / static_cast<float>(frameSize.y);
+    float scaleX = baseScale;
+    float scaleY = baseScale;
+
+    // Ducking squash
     if (ducking) {
+        scaleX *= 1.15f;   // widen slightly when ducked
         scaleY *= 0.55f;
     }
-    float scaleX = facingRight ? scaleY : -scaleY;
-    sprite.setScale(scaleX, scaleY);
+
+    // Landing squash/stretch pop
+    if (landSquashTimer > 0.0f) {
+        float t = landSquashTimer / 0.18f;  // 1 → 0 as squash fades
+        // First half: squash (t > 0.5), second half: stretch back (t <= 0.5)
+        float squash = (t > 0.5f) ? (1.0f - 0.20f * (t - 0.5f) * 2.0f)   // slight squash
+                                  : (1.0f + 0.12f * (0.5f - t) * 2.0f);   // slight stretch
+        scaleX *= (2.0f - squash);   // widen inverse to height squash
+        scaleY *= squash;
+    }
+
+    // Jump stretch (elongate while rising)
+    if (!isOnGround()) {
+        b2Vec2 v = body->GetLinearVelocity();
+        if (v.y > 1.0f) {
+            float stretch = 1.0f + std::min(v.y / 30.0f, 0.15f);
+            scaleY *= stretch;
+            scaleX *= (1.0f / stretch);
+        }
+    }
+
+    // Horizontal flip
+    float flipSign = facingRight ? 1.0f : -1.0f;
+    sprite.setScale(scaleX * flipSign, scaleY);
+
+    // Forward lean during run (slight rotation toward movement direction)
+    float targetRotation = 0.0f;
+    if (isOnGround() && (runnerModeEnabled || std::abs(body->GetLinearVelocity().x) > 0.5f)) {
+        targetRotation = facingRight ? 6.0f : -6.0f;  // 6° lean forward
+    } else if (!isOnGround()) {
+        b2Vec2 v2 = body->GetLinearVelocity();
+        // Tilt forward on ascent, backward on descent
+        targetRotation = facingRight ? (-v2.y * 0.5f) : (v2.y * 0.5f);
+        targetRotation = std::max(-12.0f, std::min(12.0f, targetRotation));
+    }
+    sprite.setRotation(targetRotation);
+
+    // Vertical bob during run (applied via position offset in syncSpriteToBody)
+    // Store bob offset so syncSpriteToBody can use it
+    // (runBobTimer is advanced in update())
 
     // Switch animation if state changed
     if (newState != animState) {
@@ -266,6 +340,12 @@ void Player::updateAnimState() {
 void Player::syncSpriteToBody() {
     b2Vec2 bodyPos = body->GetPosition();                   // Lab: arrow operator
     sf::Vector2f screenPos = physics->toScreen(bodyPos);    // Lab: arrow operator
+
+    // Subtle vertical bob during run: ±4px sine wave at stride frequency
+    if (isOnGround() && runBobTimer > 0.0f) {
+        screenPos.y += std::sin(runBobTimer * 14.0f) * 4.0f;
+    }
+
     sprite.setPosition(screenPos);
 }
 

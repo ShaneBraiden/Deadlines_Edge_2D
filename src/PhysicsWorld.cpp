@@ -133,6 +133,27 @@ b2Body* PhysicsWorld::createStaticBody(float centerX, float centerY,
     return body;
 }
 
+b2Body* PhysicsWorld::createKinematicBody(float centerX, float centerY,
+                                          float halfWidth, float halfHeight,
+                                          float friction) {
+    b2BodyDef bodyDef;
+    bodyDef.type = b2_kinematicBody;
+    bodyDef.position.Set(centerX, centerY);
+
+    b2Body* body = world->CreateBody(&bodyDef);     // Lab: arrow operator
+
+    b2PolygonShape shape;
+    shape.SetAsBox(halfWidth, halfHeight);
+
+    b2FixtureDef fixtureDef;
+    fixtureDef.shape = &shape;
+    fixtureDef.friction = friction;
+    fixtureDef.userData.pointer = Constants::FIXTURE_BODY;
+
+    body->CreateFixture(&fixtureDef);               // Lab: arrow operator
+    return body;
+}
+
 void PhysicsWorld::addSensorFixture(b2Body* body, float halfWidth, float halfHeight,
                                     const b2Vec2& offset, uintptr_t userData) {
     b2PolygonShape sensorShape;
