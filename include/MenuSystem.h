@@ -40,7 +40,7 @@ public:
     void renderSettingsMenu(sf::RenderWindow& window, sf::Font& font);
     void renderPauseMenu(sf::RenderWindow& window, sf::Font& font);
     void renderGameOverMenu(sf::RenderWindow& window, sf::Font& font);
-    void renderShopMenu(sf::RenderWindow& window, sf::Font& font, int playerCoins);
+    void renderShopMenu(sf::RenderWindow& window, sf::Font& font, SaveSystem* saveSystem);
     void renderAchievementsMenu(sf::RenderWindow& window, sf::Font& font);
 
     // Navigation methods
@@ -88,6 +88,7 @@ private:
     int gameOverSelection;   // 0=Retry, 1=MainMenu
     int mainSelection;       // 0=Play, 1=Settings, 2=Achievements, 3=Quit
     int shopSelection;       // Shop item index
+    int shopMaxItems;        // How many items in shop (set in renderShopMenu)
 
     // Settings values
     float masterVolume;

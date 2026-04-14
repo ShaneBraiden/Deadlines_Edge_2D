@@ -17,6 +17,7 @@ MenuSystem::MenuSystem(sf::RenderWindow& window, AssetManager* assets)
     , gameOverSelection(0)
     , mainSelection(0)
     , shopSelection(0)
+    , shopMaxItems(4)
     , masterVolume(1.0f)
     , musicVolume(0.7f)
     , sfxVolume(0.8f)
@@ -48,21 +49,22 @@ void MenuSystem::navigateUp() {
     selectedIndex--;
     if (selectedIndex < 0) selectedIndex = maxMenuItems - 1;
 
-    // Update specific selection based on current context
-    pauseSelection = selectedIndex;
-    settingsSelection = selectedIndex;
-    gameOverSelection = selectedIndex;
-    mainSelection = selectedIndex;
+    pauseSelection      = selectedIndex;
+    settingsSelection   = selectedIndex;
+    gameOverSelection   = selectedIndex;
+    mainSelection       = selectedIndex;
+    shopSelection       = selectedIndex % shopMaxItems;
 }
 
 void MenuSystem::navigateDown() {
     selectedIndex++;
     if (selectedIndex >= maxMenuItems) selectedIndex = 0;
 
-    pauseSelection = selectedIndex;
-    settingsSelection = selectedIndex;
-    gameOverSelection = selectedIndex;
-    mainSelection = selectedIndex;
+    pauseSelection      = selectedIndex;
+    settingsSelection   = selectedIndex;
+    gameOverSelection   = selectedIndex;
+    mainSelection       = selectedIndex;
+    shopSelection       = selectedIndex % shopMaxItems;
 }
 
 void MenuSystem::navigateLeft() {
@@ -92,7 +94,7 @@ void MenuSystem::select(GameState& currentState, SaveSystem* saveSystem) {
             switch (mainSelection) {
                 case 0: currentState = GameState::Play; break;
                 case 1: currentState = GameState::Settings; settingsSelection = 0; selectedIndex = 0; maxMenuItems = 5; break;
-                case 2: currentState = GameState::Shop; selectedIndex = 0; break;
+                case 2: currentState = GameState::Shop; selectedIndex = 0; shopSelection = 0; maxMenuItems = shopMaxItems; break;
                 case 3: currentState = GameState::Achievements; selectedIndex = 0; break;
                 case 4: windowRef.close(); break;
             }
@@ -107,6 +109,38 @@ void MenuSystem::select(GameState& currentState, SaveSystem* saveSystem) {
             break;
 
         case GameState::Shop:
+            if (shopSelection == shopMaxItems - 1) {
+                // Back button selected
+                currentState = GameState::Menu;
+                selectedIndex = 0;
+                mainSelection = 0;
+                maxMenuItems = 5;
+            } else if (saveSystem) {
+                // Purchase logic
+                PlayerData& pd = saveSystem->getData();
+                switch (shopSelection) {
+                    case 0: // Shield Start — 75 coins, one-time
+                        if (!pd.shieldStartUpgrade && saveSystem->spendCoins(75)) {
+                            pd.shieldStartUpgrade = true;
+                            saveSystem->save();
+                        }
+                        break;
+                    case 1: // Double Coins — 100 coins, one-time
+                        if (!pd.doubleCoinsUpgrade && saveSystem->spendCoins(100)) {
+                            pd.doubleCoinsUpgrade = true;
+                            saveSystem->save();
+                        }
+                        break;
+                    case 2: // Extra Life — 150 coins each, up to 3
+                        if (pd.extraLives < 3 && saveSystem->spendCoins(150)) {
+                            pd.extraLives++;
+                            saveSystem->save();
+                        }
+                        break;
+                }
+            }
+            break;
+
         case GameState::Achievements:
             // Escape/back handled elsewhere
             break;
@@ -183,7 +217,7 @@ void MenuSystem::render(sf::RenderWindow& window, sf::Font& font, GameState stat
         case GameState::Pause: renderPauseMenu(window, font); break;
         case GameState::GameOver: renderGameOverMenu(window, font); break;
         case GameState::Shop:
-            renderShopMenu(window, font, saveSystem ? saveSystem->getData().totalCoins : 0);
+            renderShopMenu(window, font, saveSystem);
             break;
         case GameState::Achievements: renderAchievementsMenu(window, font); break;
         default: break;
@@ -426,43 +460,160 @@ void MenuSystem::renderGameOverMenu(sf::RenderWindow& window, sf::Font& font) {
     drawMenuItem(window, font, "MAIN MENU", itemY + 45.0f, gameOverSelection == 1);
 }
 
-void MenuSystem::renderShopMenu(sf::RenderWindow& window, sf::Font& font, int playerCoins) {
+void MenuSystem::renderShopMenu(sf::RenderWindow& window, sf::Font& font, SaveSystem* saveSystem) {
+    int playerCoins = saveSystem ? saveSystem->getData().totalCoins : 0;
     float winW = static_cast<float>(window.getSize().x);
     float winH = static_cast<float>(window.getSize().y);
 
-    // Background
+    shopMaxItems = 4;   // 3 items + back
+    maxMenuItems = shopMaxItems;
+
     drawDarkOverlay(window, 200);
 
     // Panel
     sf::RectangleShape panel;
-    panel.setSize(sf::Vector2f(700.0f, 500.0f));
-    panel.setFillColor(sf::Color(20, 24, 35, 245));
+    panel.setSize(sf::Vector2f(760.0f, 540.0f));
+    panel.setFillColor(sf::Color(14, 18, 28, 248));
     panel.setOutlineColor(Constants::UI_SECONDARY);
     panel.setOutlineThickness(2.0f);
-    panel.setOrigin(350.0f, 250.0f);
+    panel.setOrigin(380.0f, 270.0f);
     panel.setPosition(winW * 0.5f, winH * 0.5f);
     window.draw(panel);
 
-    drawTitle(window, font, "UPGRADE SHOP", winH * 0.28f);
+    drawTitle(window, font, "UPGRADE SHOP", winH * 0.26f + titleBounce * 0.5f);
 
     // Coin display
-    sf::Text coinsText;
-    coinsText.setFont(font);
-    coinsText.setString("Coins: " + std::to_string(playerCoins));
-    coinsText.setCharacterSize(24);
-    coinsText.setFillColor(Constants::UI_SECONDARY);
-    sf::FloatRect coinsBounds = coinsText.getLocalBounds();
-    coinsText.setOrigin(coinsBounds.left + coinsBounds.width * 0.5f, coinsBounds.top + coinsBounds.height * 0.5f);
-    coinsText.setPosition(winW * 0.5f, winH * 0.36f);
-    window.draw(coinsText);
+    drawCenteredText(window, font, "Coins: " + std::to_string(playerCoins),
+                     winH * 0.345f, 26, Constants::UI_SECONDARY);
 
-    // Placeholder upgrade items
-    float itemY = winH * 0.44f;
-    drawMenuItem(window, font, "Extra Life (50 coins) - COMING SOON", itemY, false, false);
-    drawMenuItem(window, font, "Double Coins (100 coins) - COMING SOON", itemY + 45.0f, false, false);
-    drawMenuItem(window, font, "Shield Start (75 coins) - COMING SOON", itemY + 90.0f, false, false);
+    // Separator line
+    sf::RectangleShape sep(sf::Vector2f(660.0f, 1.0f));
+    sep.setFillColor(sf::Color(255, 193, 7, 80));
+    sep.setOrigin(330.0f, 0.0f);
+    sep.setPosition(winW * 0.5f, winH * 0.385f);
+    window.draw(sep);
 
-    drawMenuItem(window, font, "< BACK (ESC)", winH * 0.72f, true);
+    // ---- Shop items ----
+    // We need the SaveSystem data — passed via playerCoins only, so we render based on
+    // the selection index and let the caller (select()) do the actual logic.
+    // We show affordability via the playerCoins value passed in.
+
+    struct ShopEntry { std::string name; std::string desc; int cost; bool owned; int ownedCount; int maxCount; };
+    // Note: we can't access SaveSystem here directly, so we use stored flags from last render.
+    // Instead, render with data passed through playerCoins — we'll add a render overload.
+    // For now render generic affordable state based on playerCoins only.
+
+    // We'll use a helper lambda drawing a full item card
+    auto drawItemCard = [&](int idx, const std::string& name, const std::string& desc,
+                             int cost, bool owned, int ownedCount, int maxCount) {
+        float cardY = winH * 0.43f + idx * 90.0f;
+        bool sel = (shopSelection == idx);
+        bool affordable = (playerCoins >= cost);
+        bool canBuy = !owned && affordable;
+        if (maxCount > 1) canBuy = (ownedCount < maxCount) && affordable;
+
+        // Card background
+        sf::RectangleShape card(sf::Vector2f(680.0f, 75.0f));
+        card.setOrigin(340.0f, 37.5f);
+        card.setPosition(winW * 0.5f, cardY);
+        sf::Color cardColor = sel ? sf::Color(30, 40, 65, 220) : sf::Color(20, 26, 40, 180);
+        card.setFillColor(cardColor);
+        if (sel) {
+            card.setOutlineColor(Constants::UI_PRIMARY);
+            card.setOutlineThickness(1.5f);
+        }
+        window.draw(card);
+
+        // Name
+        sf::Text nameT;
+        nameT.setFont(font);
+        nameT.setString(name);
+        nameT.setCharacterSize(20);
+        nameT.setFillColor(sel ? Constants::UI_TEXT_LIGHT : Constants::UI_TEXT_DIM);
+        if (sel) nameT.setStyle(sf::Text::Bold);
+        nameT.setPosition(winW * 0.5f - 320.0f, cardY - 28.0f);
+        window.draw(nameT);
+
+        // Description
+        sf::Text descT;
+        descT.setFont(font);
+        descT.setString(desc);
+        descT.setCharacterSize(15);
+        descT.setFillColor(sf::Color(140, 155, 175));
+        descT.setPosition(winW * 0.5f - 320.0f, cardY + 2.0f);
+        window.draw(descT);
+
+        // Right side: price or status
+        std::string rightLabel;
+        sf::Color rightColor;
+        if (owned && maxCount == 1) {
+            rightLabel = "OWNED";
+            rightColor = Constants::UI_ACCENT;
+        } else if (maxCount > 1) {
+            rightLabel = std::to_string(ownedCount) + "/" + std::to_string(maxCount);
+            rightColor = (ownedCount >= maxCount) ? Constants::UI_ACCENT : Constants::UI_SECONDARY;
+            if (ownedCount < maxCount) rightLabel += "  (" + std::to_string(cost) + "c)";
+        } else {
+            rightLabel = std::to_string(cost) + " coins";
+            rightColor = affordable ? Constants::UI_SECONDARY : Constants::UI_DANGER;
+        }
+
+        sf::Text priceT;
+        priceT.setFont(font);
+        priceT.setString(rightLabel);
+        priceT.setCharacterSize(18);
+        priceT.setFillColor(rightColor);
+        sf::FloatRect pb = priceT.getLocalBounds();
+        priceT.setOrigin(pb.left + pb.width, pb.top + pb.height * 0.5f);
+        priceT.setPosition(winW * 0.5f + 325.0f, cardY - 10.0f);
+        window.draw(priceT);
+
+        // "PRESS ENTER" hint on selected purchasable item
+        if (sel && canBuy) {
+            float pulse = (std::sin(pulseTimer * 5.0f) + 1.0f) * 0.5f;
+            sf::Uint8 a = static_cast<sf::Uint8>(100 + pulse * 155);
+            sf::Text hint;
+            hint.setFont(font);
+            hint.setString("ENTER to buy");
+            hint.setCharacterSize(13);
+            hint.setFillColor(sf::Color(255, 193, 7, a));
+            sf::FloatRect hb = hint.getLocalBounds();
+            hint.setOrigin(hb.left + hb.width, hb.top + hb.height * 0.5f);
+            hint.setPosition(winW * 0.5f + 325.0f, cardY + 20.0f);
+            window.draw(hint);
+        }
+
+        // Selection arrow
+        if (sel) {
+            sf::Text arrow;
+            arrow.setFont(font);
+            arrow.setString(">");
+            arrow.setCharacterSize(22);
+            float pulse = (std::sin(pulseTimer * 4.0f) + 1.0f) * 0.5f;
+            arrow.setFillColor(sf::Color(41, 98, 255, static_cast<sf::Uint8>(180 + pulse * 75)));
+            arrow.setPosition(winW * 0.5f - 345.0f, cardY - 14.0f);
+            window.draw(arrow);
+        }
+    };
+
+    // Retrieve owned state from last-known save (playerCoins is our only channel in).
+    // We track purchase state via the IDs baked into select(). For display we need
+    // to pass the SaveSystem — but renderShopMenu only gets playerCoins.
+    // Workaround: store owned flags as members updated each frame.
+    // We already have access via the assets pointer chain — instead just display based
+    // on stored shop state passed through a new render call in render().
+    // SIMPLEST: We added saveSystem pointer to MenuSystem ctor — but it's not there.
+    // So we promote to using the SaveSystem* that comes into render():
+
+    bool shieldOwned = saveSystem && saveSystem->getData().shieldStartUpgrade;
+    bool dblOwned    = saveSystem && saveSystem->getData().doubleCoinsUpgrade;
+    int  livesOwned  = saveSystem ? saveSystem->getData().extraLives : 0;
+
+    drawItemCard(0, "Shield Start", "Begin each run with an active shield",       75,  shieldOwned, 0,          1);
+    drawItemCard(1, "Double Coins", "Earn 2x coins during every run",             100, dblOwned,    0,          1);
+    drawItemCard(2, "Extra Life",   "Start with an extra hit  (max 3 stackable)", 150, false,       livesOwned, 3);
+
+    drawMenuItem(window, font, "< BACK  (ESC)", winH * 0.855f, shopSelection == 3);
 }
 
 void MenuSystem::renderAchievementsMenu(sf::RenderWindow& window, sf::Font& font) {

@@ -44,6 +44,7 @@ public:
     // Update helpers
     void updateBestScore(float score);
     void addCoins(int amount);
+    bool spendCoins(int amount);   // Returns false if insufficient funds
     void incrementRuns();
     void addPlayTime(float seconds);
     void addObstaclesDodged(int count);

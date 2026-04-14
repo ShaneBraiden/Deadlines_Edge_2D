@@ -49,6 +49,9 @@ Game::Game()
     , coinsThisRun(0)
     , distanceTraveled(0.0f)
     , nextAmmoDropDistance(0.0f)
+    , nextProfId(0)
+    , extraLivesRemaining(0)
+    , playerWasOnGround(true)
 {
     window.setFramerateLimit(60);
 
@@ -118,19 +121,57 @@ Game::Game()
     vignetteRight.setPosition(winW - vigSize, 0.0f);
     vignetteRight.setFillColor(sf::Color(0, 0, 0, 70));
 
+    // Gameplay music (loops during play)
     if (!gameplayMusic.openFromFile("assets/audio/main.mp3")) {
-        std::cerr << "Warning: Failed to load gameplay music from assets/audio/main.mp3\n";
+        std::cerr << "Warning: Failed to load main music\n";
     } else {
         gameplayMusic.setLoop(true);
-        gameplayMusic.setVolume(70.0f);
+        gameplayMusic.setVolume(60.0f);
     }
 
-    // Bullet / pen sound effect
-    if (!bulletSoundBuffer.loadFromFile("assets/audio/bullet.mp3")) {
-        std::cerr << "Warning: Failed to load bullet sound from assets/audio/bullet.mp3\n";
+    // Menu music (loops on menus)
+    if (!menuMusic.openFromFile("assets/audio/menu.mp3")) {
+        std::cerr << "Warning: Failed to load menu music\n";
     } else {
+        menuMusic.setLoop(true);
+        menuMusic.setVolume(50.0f);
+        menuMusic.play();
+    }
+
+    // SFX — bullet/pen
+    if (bulletSoundBuffer.loadFromFile("assets/audio/bullet.mp3")) {
         bulletSound.setBuffer(bulletSoundBuffer);
-        bulletSound.setVolume(80.0f);
+        bulletSound.setVolume(75.0f);
+    }
+
+    // SFX — coin pickup
+    if (coinSoundBuffer.loadFromFile("assets/audio/coin.mp3")) {
+        coinSound.setBuffer(coinSoundBuffer);
+        coinSound.setVolume(70.0f);
+    }
+
+    // SFX — power-up collected
+    if (powerupSoundBuffer.loadFromFile("assets/audio/powerup.mp3")) {
+        powerupSound.setBuffer(powerupSoundBuffer);
+        powerupSound.setVolume(80.0f);
+    }
+
+    // SFX — game lost
+    if (gameLostSoundBuffer.loadFromFile("assets/audio/game_lost.mp3")) {
+        gameLostSound.setBuffer(gameLostSoundBuffer);
+        gameLostSound.setVolume(85.0f);
+    }
+
+    // SFX — jump
+    if (jumpSoundBuffer.loadFromFile("assets/audio/jump.mp3")) {
+        jumpSound.setBuffer(jumpSoundBuffer);
+        jumpSound.setVolume(75.0f);
+    }
+
+    // SFX — parkour land on bench/chair
+    if (landSoundBuffer.loadFromFile("assets/audio/land.mp3")) {
+        landSound.setBuffer(landSoundBuffer);
+        landSound.setVolume(80.0f);
     }
 }
 
@@ -270,6 +311,11 @@ void Game::resetRun() {
     hud->clearPowerUps();
     projectileManager->reset();
     assignments.clear();
+    nextProfId = 0;
+    playerWasOnGround = true;
+
+    // Apply extra lives upgrade
+    extraLivesRemaining = saveSystem ? saveSystem->getData().extraLives : 0;
 
     // Increment run count
     if (saveSystem) {
@@ -288,13 +334,13 @@ void Game::spawnObstacle() {
     obstacle.hitPoints = RunnerObstacle::DEFAULT_HIT_POINTS;
     obstacle.physBody = nullptr;
     obstacle.playerOnTop = false;
-    obstacle.profFrame            = 0;
-    obstacle.profFrameTimer       = 0.0f;
-    obstacle.profThrowTimer       = RunnerObstacle::PROF_THROW_DELAY;
-    obstacle.assignmentsThrown    = 0;
-    obstacle.assignmentsDestroyed = 0;
-    obstacle.dying                = false;
-    obstacle.dyingTimer           = 0.0f;
+    obstacle.profId          = nextProfId++;
+    obstacle.profFrame       = 0;
+    obstacle.profFrameTimer  = 0.0f;
+    obstacle.profThrowTimer  = RunnerObstacle::PROF_THROW_DELAY;
+    obstacle.assignmentsThrown = 0;
+    obstacle.dying           = false;
+    obstacle.dyingTimer      = 0.0f;
 
     float spawnY = groundY;
 
@@ -677,7 +723,15 @@ void Game::update(float dt) {
     distanceTraveled += obstacleBaseSpeed * dt * 0.1f;
 
     // Handle player input
+    bool wasOnGround = playerWasOnGround;
     player->handleInput(inputManager);
+    bool nowOnGround = player->isOnGround();
+
+    // Jump sound: ground → air transition
+    if (wasOnGround && !nowOnGround) {
+        jumpSound.play();
+    }
+    playerWasOnGround = nowOnGround;
 
     // Handle shooting with mouse
     handleShooting();
@@ -762,7 +816,9 @@ void Game::update(float dt) {
                 hud->triggerScorePopup("+" + std::to_string(Constants::PROJECTILE_AMMO_PICKUP) + " ammo",
                     player->getScreenPosition());
                 hud->showToast("Ammo picked up", Constants::UI_SECONDARY);
+                powerupSound.play();
             } else {
+                powerupSound.play();
                 for (const auto& effect : powerUpManager->getActiveEffects()) {
                     std::string name;
                     sf::Color color;
@@ -789,11 +845,14 @@ void Game::update(float dt) {
         bool hasMagnet = powerUpManager->hasMagnet();
         int coinsCollected = coinManager->checkCollection(playerBounds, hasMagnet, player->getScreenPosition());
         if (coinsCollected > 0) {
+            // Double coins upgrade: 2x coin value
+            if (saveSystem && saveSystem->getData().doubleCoinsUpgrade) coinsCollected *= 2;
             coinsThisRun += coinsCollected;
             if (saveSystem) {
                 saveSystem->addCoins(coinsCollected);
             }
             hud->triggerScorePopup("+" + std::to_string(coinsCollected) + " coin", player->getScreenPosition());
+            coinSound.play();
         }
     }
 
@@ -874,6 +933,14 @@ void Game::update(float dt) {
             screenEffects->triggerFlash(sf::Color(100, 180, 255, 100), 0.15f);
             hud->showToast("Shield broken!", sf::Color(100, 180, 255));
             player->setInvulnerable(0.5f);
+        } else if (extraLivesRemaining > 0) {
+            // Extra life absorbs hit
+            extraLivesRemaining--;
+            player->setInvulnerable(2.0f);
+            screenEffects->triggerShake(10.0f);
+            screenEffects->triggerFlash(sf::Color(255, 80, 80, 160), 0.25f);
+            hud->showToast("Extra Life used! (" + std::to_string(extraLivesRemaining) + " left)",
+                           sf::Color(255, 120, 50));
         } else {
             handleGameOver();
         }
@@ -886,15 +953,18 @@ void Game::update(float dt) {
 }
 
 void Game::updateGameplayMusic() {
-    const bool shouldPlay = (currentState == GameState::Play && !gameOver);
-    const auto status = gameplayMusic.getStatus();
+    const bool inPlay = (currentState == GameState::Play && !gameOver);
 
-    if (shouldPlay) {
-        if (status != sf::SoundSource::Playing) {
+    if (inPlay) {
+        if (gameplayMusic.getStatus() != sf::SoundSource::Playing)
             gameplayMusic.play();
-        }
-    } else if (status == sf::SoundSource::Playing) {
-        gameplayMusic.pause();
+        if (menuMusic.getStatus() == sf::SoundSource::Playing)
+            menuMusic.pause();
+    } else {
+        if (gameplayMusic.getStatus() == sf::SoundSource::Playing)
+            gameplayMusic.pause();
+        if (menuMusic.getStatus() != sf::SoundSource::Playing)
+            menuMusic.play();
     }
 }
 
@@ -915,6 +985,10 @@ void Game::handleGameOver() {
         saveSystem->updateHighestCombo(comboSystem->getComboCount());
         saveSystem->save();
     }
+
+    // Audio
+    gameplayMusic.pause();
+    gameLostSound.play();
 
     // Trigger effects
     screenEffects->triggerShake(Constants::SCREEN_SHAKE_INTENSITY);
@@ -957,6 +1031,7 @@ void Game::checkParkourLanding() {
         if (onTopNow && !obstacle.playerOnTop) {
             // Just landed on the obstacle — trigger parkour effects
             obstacle.playerOnTop = true;
+            landSound.play();
 
             // Small upward vault bounce so the player pops off the surface
             b2Body* pb = player->getBody();
@@ -1036,7 +1111,7 @@ void Game::updateProfessors(float dt) {
                 asgn.active        = true;
                 asgn.animTimer     = 0.0f;
                 asgn.currentFrame  = 0;
-                asgn.owner         = &obs;
+                asgn.ownerProfId   = obs.profId;
                 assignments.push_back(asgn);
             }
         }
@@ -1111,8 +1186,11 @@ void Game::checkAssignmentBulletCollision() {
         if (!proj.active) continue;
         for (auto& a : assignments) {
             if (!a.active) continue;
-            sf::FloatRect aBounds(a.position.x - 22.0f, a.position.y - 22.0f, 44.0f, 44.0f);
-            if (!aBounds.contains(proj.position)) continue;
+            // Generous hit radius — bullet does not need to be pixel-perfect
+            constexpr float HIT_RADIUS = 70.0f;
+            sf::Vector2f diff = proj.position - a.position;
+            float distSq = diff.x * diff.x + diff.y * diff.y;
+            if (distSq > HIT_RADIUS * HIT_RADIUS) continue;
 
             proj.active = false;
             a.hitPoints--;
@@ -1129,8 +1207,14 @@ void Game::checkAssignmentBulletCollision() {
                 particleSystem->spawnPaperDestruction(a.position);
                 screenEffects->triggerFlash(sf::Color(255, 240, 100, 120), 0.12f);
 
-                // Immediately trigger professor disappear animation
-                RunnerObstacle* prof = a.owner;
+                // Find owning professor by ID and trigger disappear immediately
+                RunnerObstacle* prof = nullptr;
+                for (auto& obs : obstacles) {
+                    if (obs.type == ObstacleType::Professor && obs.profId == a.ownerProfId) {
+                        prof = &obs;
+                        break;
+                    }
+                }
                 if (prof && !prof->dying) {
                     prof->dying      = true;
                     // Set timer past DYING_DURATION so updateProfessors erases it next frame
@@ -1222,19 +1306,7 @@ void Game::render() {
     trackLine[1].color = sf::Color(130, 145, 168);
     window.draw(trackLine);
 
-    // Jump ceiling guide — subtle dashed line so the player can read the limit
-    float ceilingY = winH * 0.28f;
-    constexpr float DASH_LEN = 24.0f;
-    constexpr float GAP_LEN  = 18.0f;
-    sf::Color ceilColor(80, 120, 200, 55);
-    for (float x = 0.0f; x < winW; x += DASH_LEN + GAP_LEN) {
-        sf::VertexArray dash(sf::Lines, 2);
-        dash[0].position = sf::Vector2f(x, ceilingY);
-        dash[0].color    = ceilColor;
-        dash[1].position = sf::Vector2f(std::min(x + DASH_LEN, winW), ceilingY);
-        dash[1].color    = ceilColor;
-        window.draw(dash);
-    }
+    // Jump ceiling guide line removed (invisible ceiling)
 
     // Draw player shadow
     if (player) {

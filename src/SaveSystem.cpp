@@ -56,6 +56,12 @@ void SaveSystem::addCoins(int amount) {
     data.totalCoins += amount;
 }
 
+bool SaveSystem::spendCoins(int amount) {
+    if (data.totalCoins < amount) return false;
+    data.totalCoins -= amount;
+    return true;
+}
+
 void SaveSystem::incrementRuns() {
     data.totalRuns++;
 }

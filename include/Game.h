@@ -99,7 +99,7 @@ private:
         bool active;
         float animTimer;
         int currentFrame;
-        RunnerObstacle* owner;      // Which professor threw this (nullptr = none)
+        int ownerProfId;            // ID of the professor that threw this (-1 = none)
         static constexpr int MAX_FRAME = 4;
         static constexpr float FRAME_TIME = 0.12f;
     };
@@ -115,11 +115,11 @@ private:
         bool playerOnTop;       // True when player is standing on this obstacle
 
         // Professor-specific
+        int   profId;                // Unique ID per professor (stable across vector reallocs)
         int   profFrame;             // Current spritesheet frame (0-7)
         float profFrameTimer;        // Time since last frame change
         float profThrowTimer;        // Countdown until next assignment throw
-        int   assignmentsThrown;     // Total thrown so far (max 3)
-        int   assignmentsDestroyed;  // How many of its own assignments were destroyed
+        int   assignmentsThrown;     // Total thrown so far (max 1)
         bool  dying;                 // Playing disappear animation
         float dyingTimer;            // 0 → DYING_DURATION then erased
         static constexpr int   PROF_COLS              = 4;
@@ -168,6 +168,8 @@ private:
 
     // Runner state
     std::vector<RunnerObstacle> obstacles;
+    int nextProfId;             // Monotonic ID counter for professor obstacles
+    int extraLivesRemaining;    // Extra lives from shop upgrade
     float obstacleSpawnTimer;
     float nextObstacleSpawnDelay;
     float obstacleBaseSpeed;
@@ -185,6 +187,7 @@ private:
     int coinsThisRun;
     float distanceTraveled;
     float nextAmmoDropDistance;
+    bool  playerWasOnGround;    // For jump/land sound edge detection
 
     // Vignette overlay
     sf::RectangleShape vignetteTop;
@@ -195,10 +198,21 @@ private:
     // Assignment projectiles thrown by professors
     std::list<Assignment> assignments;
 
-    // Main gameplay music (assets/audio/main.mp3)
+    // Music
     sf::Music gameplayMusic;
+    sf::Music menuMusic;
 
-    // Bullet/pen sound effect
+    // Sound effects
     sf::SoundBuffer bulletSoundBuffer;
     sf::Sound       bulletSound;
+    sf::SoundBuffer coinSoundBuffer;
+    sf::Sound       coinSound;
+    sf::SoundBuffer powerupSoundBuffer;
+    sf::Sound       powerupSound;
+    sf::SoundBuffer gameLostSoundBuffer;
+    sf::Sound       gameLostSound;
+    sf::SoundBuffer jumpSoundBuffer;
+    sf::Sound       jumpSound;
+    sf::SoundBuffer landSoundBuffer;
+    sf::Sound       landSound;
 };
